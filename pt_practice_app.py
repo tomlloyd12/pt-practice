@@ -201,12 +201,14 @@ def api_check():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
+    explanation = result.get("explanation", "")
+    notes = f"You wrote: {portuguese_input}" + (f" — {explanation}" if explanation else "")
     log_to_sheet(
         "Correction",
         result.get("english_translation", ""),
         result.get("correct_portuguese", portuguese_input),
         "Correct" if result.get("is_correct") else "Incorrect",
-        result.get("explanation", ""),
+        notes,
     )
     return jsonify(result)
 
