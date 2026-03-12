@@ -16,6 +16,7 @@ import csv
 import io
 import json
 import os
+import re
 import smtplib
 import uuid
 import zipfile
@@ -32,7 +33,7 @@ import psycopg2
 import resend
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, render_template_string, Response, send_file
+from flask import Flask, jsonify, redirect, request, render_template_string, Response, send_file
 from google.oauth2.service_account import Credentials
 from gtts import gTTS
 
@@ -269,6 +270,145 @@ def api_check():
     log_to_db("Correction", english, portuguese, status, notes)
     log_to_sheet("Correction", english, portuguese, status, notes)
     return jsonify(result)
+
+
+# ── Translation Practice ──────────────────────────────────────────────────────
+
+practice_state = {"sentences": [], "current": 0, "results": []}
+
+
+def split_sentences(text: str) -> list:
+    parts = re.split(r'(?<=[.!?])\s+', text.strip())
+    return [s.strip() for s in parts if len(s.strip()) > 3]
+
+
+def grade_translation_practice(english: str, user_pt: str) -> dict:
+    prompt = (
+        f'English sentence: "{english}"\n'
+        f'Student\'s European Portuguese: "{user_pt}"\n\n'
+        "Grade this translation. Reply with a JSON object with exactly these keys:\n"
+        "- \"correct_translation\": the ideal European Portuguese translation (not Brazilian)\n"
+        "- \"score\": \"correct\", \"partial\", or \"wrong\"\n"
+        "- \"feedback\": 1 sentence overall summary\n"
+        "- \"mistakes\": array of mistake objects (empty if correct). Each object has:\n"
+        "  - \"pt_key_phrase\": the specific Portuguese word/phrase that was wrong\n"
+        "  - \"en_key_phrase\": English meaning/gloss of that phrase\n"
+        "  - \"feedback\": 1 sentence explaining this specific error\n"
+        "  - \"worth_flashcard\": true if useful to study\n"
+        "Return only the JSON object, nothing else."
+    )
+    raw = claude_client().messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=600,
+        messages=[{"role": "user", "content": prompt}],
+    ).content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.lower().startswith("json"):
+            raw = raw[4:]
+    return json.loads(raw.strip())
+
+
+def generate_practice_sentence(pt_key_phrase: str) -> str:
+    resp = claude_client().messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=80,
+        messages=[{"role": "user", "content": (
+            f"Write one short, natural European Portuguese sentence (not Brazilian, max 12 words) "
+            f"that uses the word or phrase \"{pt_key_phrase}\". "
+            "Return only the Portuguese sentence, nothing else."
+        )}],
+    )
+    return resp.content[0].text.strip().strip('"')
+
+
+# ── Practice routes ────────────────────────────────────────────────────────────
+
+@app.route("/practice/")
+@require_password
+def practice_home():
+    practice_state.update({"sentences": [], "current": 0, "results": []})
+    return render_template_string(PRACTICE_START_PAGE)
+
+
+@app.route("/practice/start", methods=["POST"])
+@require_password
+def practice_start():
+    text = request.form.get("text", "").strip()
+    sentences = split_sentences(text) if text else []
+    if not sentences:
+        return redirect("/practice/")
+    practice_state.update({"sentences": sentences, "current": 0, "results": []})
+    return redirect("/practice/go")
+
+
+@app.route("/practice/go")
+@require_password
+def practice_go():
+    if not practice_state["sentences"]:
+        return redirect("/practice/")
+    if practice_state["current"] >= len(practice_state["sentences"]):
+        return redirect("/practice/summary")
+    total   = len(practice_state["sentences"])
+    current = practice_state["current"] + 1
+    return render_template_string(
+        PRACTICE_SENTENCE_PAGE,
+        sentence=practice_state["sentences"][practice_state["current"]],
+        current=current, total=total,
+        progress=int((practice_state["current"] / total) * 100),
+    )
+
+
+@app.route("/practice/grade", methods=["POST"])
+@require_password
+def practice_grade():
+    data = request.get_json(force=True) or {}
+    try:
+        result = grade_translation_practice(data.get("english", ""), data.get("user_pt", ""))
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    return jsonify(result)
+
+
+@app.route("/practice/advance", methods=["POST"])
+@require_password
+def practice_advance():
+    data = request.get_json(force=True) or {}
+    practice_state["results"].append(data)
+    practice_state["current"] += 1
+    # Auto-log non-correct results to DB so they appear in flashcards
+    if data.get("score") != "correct":
+        english    = data.get("english", "")
+        portuguese = data.get("correct_translation", "")
+        user_wrote = data.get("user_translation", "")
+        feedback   = data.get("feedback", "")
+        notes = f"You wrote: {user_wrote}" + (f" — {feedback}" if feedback else "")
+        log_to_db("Practice", english, portuguese, "Incorrect", notes)
+    return jsonify({"ok": True})
+
+
+@app.route("/practice/summary")
+@require_password
+def practice_summary():
+    if not practice_state["results"] and not practice_state["sentences"]:
+        return redirect("/practice/")
+    return render_template_string(
+        PRACTICE_SUMMARY_PAGE,
+        results=practice_state["results"],
+        total_sentences=len(practice_state["sentences"]),
+    )
+
+
+@app.route("/practice/generate-sentence", methods=["POST"])
+@require_password
+def practice_generate_sentence():
+    data = request.get_json(force=True) or {}
+    pt_key = data.get("pt_key_phrase", "").strip()
+    try:
+        sentence = generate_practice_sentence(pt_key) if pt_key else ""
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({"sentence": sentence})
 
 
 # ── Flashcard helpers ─────────────────────────────────────────────────────────
@@ -671,6 +811,7 @@ PAGE = """<!doctype html>
 <div class="tabs">
   <button class="tab active" onclick="switchTab('translate', this)">Translate</button>
   <button class="tab" onclick="switchTab('check', this)">Check My Portuguese</button>
+  <a href="/practice/" class="tab" style="text-decoration:none">Practice Test</a>
 </div>
 
 <main>
@@ -914,6 +1055,7 @@ FLASHCARDS_PAGE = """<!doctype html>
     .type-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; }
     .type-badge.translation { background: #dbeafe; color: #1d4ed8; }
     .type-badge.correction  { background: var(--red-light); color: #dc2626; }
+    .type-badge.practice    { background: #fef9c3; color: #92400e; }
     .delete-btn { background: none; border: none; cursor: pointer; color: var(--muted); padding: 5px 7px; border-radius: 6px; line-height: 1; transition: color .15s, background .15s; }
     .delete-btn:hover { color: #dc2626; background: var(--red-light); }
     .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
@@ -987,6 +1129,8 @@ FLASHCARDS_PAGE = """<!doctype html>
           <td>
             {% if m.type == 'Translation' %}
               <span class="type-badge translation">Translate</span>
+            {% elif m.type == 'Practice' %}
+              <span class="type-badge practice">Practice</span>
             {% else %}
               <span class="type-badge correction">Mistake</span>
             {% endif %}
@@ -1131,6 +1275,348 @@ FLASHCARDS_PAGE = """<!doctype html>
 </body>
 </html>
 """
+
+_PRACTICE_CSS = """
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --green-dark:#14532d; --green:#166534; --green-mid:#16a34a;
+      --green-light:#dcfce7; --red-light:#fee2e2; --amber-light:#fef9c3;
+      --bg:#f1f5f9; --surface:#fff; --border:#e2e8f0; --text:#0f172a; --muted:#64748b;
+      --radius:14px; --shadow:0 1px 3px rgba(0,0,0,.07),0 6px 20px rgba(0,0,0,.06);
+    }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+    header { background:var(--green); padding:0 20px; padding-top:env(safe-area-inset-top); display:flex; align-items:center; height:calc(56px + env(safe-area-inset-top)); gap:10px; }
+    header h1 { color:white; font-size:17px; font-weight:700; }
+    .back { color:rgba(255,255,255,.85); font-size:13px; font-weight:600; text-decoration:none; background:rgba(255,255,255,.15); padding:5px 12px; border-radius:99px; margin-left:auto; }
+    main { padding:20px 16px 60px; max-width:640px; margin:0 auto; }
+    .card { background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow); padding:20px; margin-bottom:16px; }
+    .card h2 { font-size:18px; font-weight:700; margin-bottom:6px; }
+    .card p { font-size:14px; color:var(--muted); margin-bottom:16px; line-height:1.6; }
+    label.field-label { display:block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:8px; }
+    textarea { width:100%; min-height:100px; padding:12px 14px; border:1.5px solid var(--border); border-radius:10px; font-family:inherit; font-size:16px; color:var(--text); background:#fafafa; resize:vertical; outline:none; line-height:1.5; transition:border-color .15s,box-shadow .15s; }
+    textarea:focus { background:white; border-color:var(--green-mid); box-shadow:0 0 0 3px rgba(22,163,74,.12); }
+    .btn { height:50px; padding:0 22px; border:none; border-radius:10px; font-family:inherit; font-size:16px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:8px; transition:background .15s,transform .1s; text-decoration:none; }
+    .btn-primary { background:var(--green); color:white; }
+    .btn-primary:hover { background:var(--green-dark); }
+    .btn-primary:disabled { opacity:.5; cursor:not-allowed; }
+    .btn-outline { background:white; color:var(--text); border:1.5px solid var(--border); height:42px; font-size:14px; }
+    .btn-outline:hover { border-color:var(--green-mid); color:var(--green); }
+    .btn-sm { height:36px; font-size:13px; padding:0 16px; }
+    .btn-block { width:100%; justify-content:center; margin-top:12px; }
+    /* Progress */
+    .progress-wrap { margin-bottom:16px; }
+    .progress-meta { display:flex; justify-content:space-between; font-size:12px; font-weight:600; color:var(--muted); margin-bottom:6px; }
+    .progress-bar { height:6px; background:var(--border); border-radius:99px; overflow:hidden; }
+    .progress-fill { height:100%; background:var(--green-mid); border-radius:99px; transition:width .4s ease; }
+    /* Sentence */
+    .sentence-text { font-size:20px; font-weight:600; line-height:1.45; margin-bottom:20px; color:var(--text); }
+    /* Feedback */
+    .feedback { margin-top:16px; border-radius:12px; padding:16px 18px; border:1.5px solid; }
+    .feedback.correct { background:var(--green-light); border-color:#86efac; }
+    .feedback.partial  { background:var(--amber-light); border-color:#fde047; }
+    .feedback.wrong    { background:var(--red-light); border-color:#fca5a5; }
+    .score-badge { display:inline-block; font-size:12px; font-weight:700; padding:3px 10px; border-radius:99px; text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px; }
+    .correct .score-badge { background:#bbf7d0; color:#14532d; }
+    .partial .score-badge { background:#fde68a; color:#78350f; }
+    .wrong   .score-badge { background:#fecaca; color:#7f1d1d; }
+    .feedback-body { font-size:14px; line-height:1.6; color:#374151; }
+    .correct-block { margin-top:10px; padding-top:10px; border-top:1px solid rgba(0,0,0,.08); }
+    .correct-block .lbl { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:4px; }
+    .correct-block .val { font-size:16px; font-weight:600; }
+    .mistakes-list { margin-top:10px; padding-top:10px; border-top:1px solid rgba(0,0,0,.08); }
+    .mistake-item { background:rgba(0,0,0,.04); border-radius:6px; padding:8px 10px; margin-bottom:6px; font-size:13px; line-height:1.5; }
+    .mistake-item strong { font-size:14px; }
+    .mistake-gloss { color:var(--muted); font-size:12px; }
+    .row-actions { display:flex; gap:10px; margin-top:12px; align-items:center; }
+    /* Summary */
+    .stats-row { display:flex; gap:10px; margin-bottom:20px; }
+    .stat-box { flex:1; background:var(--surface); border-radius:12px; box-shadow:var(--shadow); padding:14px 10px; text-align:center; }
+    .stat-num { font-size:28px; font-weight:700; line-height:1; }
+    .stat-lbl { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-top:4px; }
+    .stat-box.correct .stat-num { color:#16a34a; }
+    .stat-box.partial  .stat-num { color:#d97706; }
+    .stat-box.wrong    .stat-num { color:#dc2626; }
+    .sentence-group { margin-bottom:20px; }
+    .sentence-ctx { background:#f8fafc; border-radius:8px; padding:10px 14px; margin-bottom:10px; font-size:13px; }
+    .ctx-en { font-weight:600; }
+    .ctx-yours { color:var(--muted); font-style:italic; margin-top:3px; }
+    .sbadge { display:inline-block; font-size:11px; font-weight:700; padding:2px 9px; border-radius:99px; text-transform:uppercase; margin-bottom:6px; }
+    .sbadge.partial { background:#fde68a; color:#78350f; }
+    .sbadge.wrong   { background:#fecaca; color:#7f1d1d; }
+    .mistake-card { background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow); padding:16px 18px; margin-bottom:10px; }
+    .mc-phrase { font-size:16px; font-weight:700; margin-bottom:2px; }
+    .mc-gloss { font-size:12px; color:var(--muted); font-weight:400; margin-left:5px; }
+    .mc-feedback { font-size:13px; color:#374151; line-height:1.5; margin-bottom:10px; }
+    .sentence-wrap { background:#f0fdf4; border-left:3px solid var(--green-mid); border-radius:0 6px 6px 0; padding:8px 12px; margin-bottom:10px; }
+    .sentence-wrap .slbl { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--green); margin-bottom:3px; }
+    .sentence-wrap .sval { font-size:14px; font-weight:600; color:var(--green-dark); }
+    .btn-regen { height:28px; padding:0 12px; background:none; border:1.5px solid var(--border); border-radius:6px; font-family:inherit; font-size:12px; font-weight:500; color:var(--muted); cursor:pointer; transition:border-color .15s,color .15s; }
+    .btn-regen:hover { border-color:var(--green-mid); color:var(--green); }
+    .btn-regen:disabled { opacity:.5; cursor:not-allowed; }
+    .flash-note { background:var(--green-light); border:1.5px solid #86efac; border-radius:10px; padding:12px 16px; font-size:14px; color:var(--green-dark); margin-bottom:16px; }
+    .spinner { display:inline-block; width:18px; height:18px; border:2.5px solid rgba(255,255,255,.35); border-top-color:white; border-radius:50%; animation:spin .6s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .btn.loading .btn-label { display:none; }
+    .btn.loading .spinner { display:block; }
+"""
+
+PRACTICE_START_PAGE = """<!doctype html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+  <meta name="theme-color" content="#166534">
+  <title>PT Practice — Practice Test</title>
+  <style>""" + _PRACTICE_CSS + """</style>
+</head><body>
+<header>
+  <span style="font-size:22px">🇵🇹</span>
+  <h1>Practice Test</h1>
+  <a href="/" class="back">← Back</a>
+</header>
+<main>
+  <div class="card">
+    <h2>Translate English → Portuguese</h2>
+    <p>Paste any English text. Each sentence becomes a translation challenge. Mistakes are automatically added to your flashcards.</p>
+    <form method="post" action="/practice/start">
+      <label class="field-label" for="text">Paste your English text</label>
+      <textarea id="text" name="text" placeholder="e.g. I would like to go to the beach. The weather is beautiful today." rows="5" autofocus></textarea>
+      <button type="submit" class="btn btn-primary btn-block">Start practice →</button>
+    </form>
+  </div>
+</main>
+</body></html>
+"""
+
+PRACTICE_SENTENCE_PAGE = """<!doctype html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+  <meta name="theme-color" content="#166534">
+  <title>PT Practice · {{ current }}/{{ total }}</title>
+  <style>""" + _PRACTICE_CSS + """</style>
+</head><body>
+<header>
+  <span style="font-size:22px">🇵🇹</span>
+  <h1>Practice Test</h1>
+  <span style="margin-left:auto;background:rgba(255,255,255,.18);color:white;font-size:12px;font-weight:600;padding:4px 12px;border-radius:99px;">{{ current }} / {{ total }}</span>
+</header>
+<main>
+  <div class="progress-wrap">
+    <div class="progress-meta">
+      <span>Sentence {{ current }} of {{ total }}</span>
+      <span>{{ progress }}% complete</span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" style="width:{{ progress }}%"></div></div>
+  </div>
+
+  <div class="card">
+    <label class="field-label">Translate into European Portuguese</label>
+    <p class="sentence-text" id="englishSentence">{{ sentence }}</p>
+    <textarea id="translationInput" placeholder="Escreva a sua tradução aqui…" rows="3" autofocus></textarea>
+    <div class="row-actions">
+      <button class="btn btn-primary" id="checkBtn" onclick="checkTranslation()">
+        <span class="btn-label">Check</span>
+        <div class="spinner" style="display:none"></div>
+      </button>
+      <button class="btn btn-outline btn-sm" onclick="finishEarly()">Done</button>
+    </div>
+
+    <div class="feedback" id="feedback" style="display:none">
+      <span class="score-badge" id="scoreBadge"></span>
+      <div class="feedback-body">
+        <p id="feedbackText"></p>
+        <div class="mistakes-list" id="mistakesList" style="display:none"></div>
+        <div class="correct-block" id="correctBlock">
+          <div class="lbl">Correct translation</div>
+          <div class="val" id="correctText"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="nextRow" style="display:none; margin-top:14px;">
+      <button class="btn btn-primary btn-block" id="nextBtn" onclick="advance()">
+        <span class="btn-label">Next sentence →</span>
+        <div class="spinner" style="display:none"></div>
+      </button>
+    </div>
+  </div>
+</main>
+
+<script>
+  const english = document.getElementById('englishSentence').textContent;
+  let gradeResult = null;
+
+  async function checkTranslation() {
+    const userPt = document.getElementById('translationInput').value.trim();
+    if (!userPt) return;
+    const btn = document.getElementById('checkBtn');
+    setLoading(btn, true);
+    const resp = await fetch('/practice/grade', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ english, user_pt: userPt }),
+    });
+    gradeResult = await resp.json();
+    gradeResult.english = english;
+    gradeResult.user_translation = userPt;
+    showFeedback(gradeResult);
+    setLoading(btn, false);
+    btn.style.display = 'none';
+    document.getElementById('translationInput').disabled = true;
+    document.getElementById('nextRow').style.display = 'block';
+  }
+
+  function showFeedback(r) {
+    const panel = document.getElementById('feedback');
+    panel.className = 'feedback ' + (r.score || 'wrong');
+    panel.style.display = 'block';
+    const badge = document.getElementById('scoreBadge');
+    badge.textContent = r.score === 'correct' ? '✓ Correct' : r.score === 'partial' ? '~ Partial' : '✗ Wrong';
+    document.getElementById('feedbackText').textContent = r.feedback || '';
+    document.getElementById('correctText').textContent = r.correct_translation || '';
+    if (r.score === 'correct') {
+      document.getElementById('correctBlock').style.display = 'none';
+    }
+    const ml = document.getElementById('mistakesList');
+    if (r.mistakes && r.mistakes.length > 0) {
+      let html = '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#64748b;margin-bottom:8px;">Specific errors</div>';
+      for (const m of r.mistakes) {
+        html += `<div class="mistake-item"><strong>${m.pt_key_phrase}</strong>`;
+        if (m.en_key_phrase) html += ` <span class="mistake-gloss">(${m.en_key_phrase})</span>`;
+        html += `<br>${m.feedback}</div>`;
+      }
+      ml.innerHTML = html; ml.style.display = 'block';
+    }
+  }
+
+  async function advance() {
+    const btn = document.getElementById('nextBtn');
+    setLoading(btn, true);
+    if (gradeResult) {
+      await fetch('/practice/advance', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(gradeResult),
+      });
+    }
+    window.location = '/practice/go';
+  }
+
+  async function finishEarly() {
+    if (gradeResult) {
+      await fetch('/practice/advance', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(gradeResult),
+      });
+    }
+    window.location = '/practice/summary';
+  }
+
+  function setLoading(btn, on) {
+    btn.disabled = on;
+    btn.querySelector('.btn-label').style.display = on ? 'none' : '';
+    btn.querySelector('.spinner').style.display = on ? 'inline-block' : 'none';
+  }
+
+  document.getElementById('translationInput').addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') checkTranslation();
+  });
+</script>
+</body></html>
+"""
+
+PRACTICE_SUMMARY_PAGE = """<!doctype html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+  <meta name="theme-color" content="#166534">
+  <title>PT Practice · Summary</title>
+  <style>""" + _PRACTICE_CSS + """</style>
+</head><body>
+<header>
+  <span style="font-size:22px">🇵🇹</span>
+  <h1>Practice Test</h1>
+  <a href="/" class="back">← Back</a>
+</header>
+<main>
+  {% set n_correct = results | selectattr('score','equalto','correct') | list | length %}
+  {% set n_partial = results | selectattr('score','equalto','partial') | list | length %}
+  {% set n_wrong   = results | selectattr('score','equalto','wrong')   | list | length %}
+
+  <div class="stats-row">
+    <div class="stat-box correct"><div class="stat-num">{{ n_correct }}</div><div class="stat-lbl">Correct</div></div>
+    <div class="stat-box partial"><div class="stat-num">{{ n_partial }}</div><div class="stat-lbl">Partial</div></div>
+    <div class="stat-box wrong"><div class="stat-num">{{ n_wrong }}</div><div class="stat-lbl">Wrong</div></div>
+  </div>
+
+  {% if n_partial > 0 or n_wrong > 0 %}
+  <div class="flash-note">
+    ✓ {{ n_partial + n_wrong }} mistake{{ 's' if (n_partial + n_wrong) != 1 else '' }} added to your flashcards
+  </div>
+  {% endif %}
+
+  {% for r in results %}
+  {% if r.score != 'correct' %}
+  <div class="sentence-group">
+    <div class="sentence-ctx">
+      <span class="sbadge {{ r.score }}">{% if r.score == 'partial' %}~ Partial{% else %}✗ Wrong{% endif %}</span>
+      <div class="ctx-en">{{ r.english }}</div>
+      {% if r.user_translation %}<div class="ctx-yours">You wrote: {{ r.user_translation }}</div>{% endif %}
+    </div>
+
+    {% if r.mistakes %}
+      {% for m in r.mistakes %}
+      <div class="mistake-card">
+        <div class="mc-phrase">{{ m.pt_key_phrase }}<span class="mc-gloss">{% if m.en_key_phrase %}({{ m.en_key_phrase }}){% endif %}</span></div>
+        <div class="mc-feedback">{{ m.feedback }}</div>
+        <div class="sentence-wrap">
+          <div class="slbl">Example sentence</div>
+          <div class="sval" id="sentence-{{ loop.index0 }}-{{ loop.index0 }}">{{ r.correct_translation }}</div>
+        </div>
+        <button class="btn-regen"
+          data-phrase="{{ m.pt_key_phrase | e }}"
+          data-target="sentence-{{ loop.index0 }}-{{ loop.index0 }}"
+          onclick="regenerate(this)">↻ New sentence</button>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="mistake-card">
+        <div class="mc-feedback">{{ r.feedback }}</div>
+        <div class="sentence-wrap">
+          <div class="slbl">Correct translation</div>
+          <div class="sval">{{ r.correct_translation }}</div>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% endfor %}
+
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">
+    <a href="/practice/" class="btn btn-outline btn-sm">← New practice</a>
+    <a href="/flashcards" class="btn btn-primary btn-sm">📚 Go to flashcards</a>
+  </div>
+</main>
+
+<script>
+  async function regenerate(btn) {
+    const phrase  = btn.dataset.phrase;
+    const target  = btn.dataset.target;
+    btn.disabled = true;
+    btn.textContent = '↻ Generating…';
+    try {
+      const resp = await fetch('/practice/generate-sentence', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ pt_key_phrase: phrase }),
+      });
+      const data = await resp.json();
+      if (data.sentence) document.getElementById(target).textContent = data.sentence;
+    } catch(e) {}
+    btn.disabled = false;
+    btn.textContent = '↻ New sentence';
+  }
+</script>
+</body></html>
+"""
+
 
 if __name__ == "__main__":
     host = os.getenv("FLASK_HOST", "0.0.0.0")
