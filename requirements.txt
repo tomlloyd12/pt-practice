@@ -1,0 +1,12 @@
+flask
+anthropic
+openai
+requests
+gtts
+edge-tts
+elevenlabs
+# PT Practice App dependencies
+gspread
+google-auth
+python-dotenv
+gunicorn
