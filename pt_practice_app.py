@@ -379,30 +379,22 @@ def flashcards_page():
 @app.route("/api/generate-flashcards", methods=["POST"])
 @require_password
 def api_generate_flashcards():
-    data = request.get_json(force=True) or {}
-    cards = data.get("cards", [])
-    if not cards:
-        return jsonify({"error": "No cards selected."}), 400
-
     try:
-        zip_data = generate_flashcard_zip(cards)
-    except Exception as exc:
-        return jsonify({"error": f"Failed to generate ZIP: {exc}"}), 500
+        data = request.get_json(force=True) or {}
+        cards = data.get("cards", [])
+        if not cards:
+            return jsonify({"error": "No cards selected."}), 400
 
-    if EMAIL_APP_PASSWORD:
-        try:
+        zip_data = generate_flashcard_zip(cards)
+
+        if EMAIL_APP_PASSWORD:
             send_flashcard_email(zip_data, len(cards))
             return jsonify({"success": True, "message": f"Emailed {len(cards)} flashcard{'s' if len(cards) != 1 else ''} to {EMAIL_ADDRESS}"})
-        except Exception as exc:
-            return jsonify({"error": f"ZIP created but email failed: {exc}"}), 500
-    else:
-        # No email configured — send the ZIP as a download instead
-        return send_file(
-            io.BytesIO(zip_data),
-            as_attachment=True,
-            download_name="flashcards.zip",
-            mimetype="application/zip",
-        )
+        else:
+            return jsonify({"error": "No EMAIL_APP_PASSWORD set — please add it in Render environment variables."}), 500
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
