@@ -230,12 +230,23 @@ def api_check():
 def get_mistakes():
     """Fetch all Incorrect rows from Google Sheets."""
     ws = get_worksheet()
-    rows = ws.get_all_records()
+    all_values = ws.get_all_values()
+    if not all_values:
+        return []
+
+    # Use raw rows to avoid gspread failing on empty/duplicate header columns
+    headers = all_values[0]
+    def col(row, name):
+        try:
+            idx = headers.index(name)
+            return row[idx] if idx < len(row) else ""
+        except ValueError:
+            return ""
+
     mistakes = []
-    for row in rows:
-        if row.get("Status") == "Incorrect":
-            notes = row.get("Notes", "")
-            # Extract original input from "You wrote: X — explanation"
+    for row in all_values[1:]:
+        if col(row, "Status") == "Incorrect":
+            notes = col(row, "Notes")
             original = ""
             explanation = notes
             if notes.startswith("You wrote: "):
@@ -244,9 +255,9 @@ def get_mistakes():
                 explanation = parts[1] if len(parts) > 1 else ""
             mistakes.append({
                 "id": str(uuid.uuid4()),
-                "timestamp": row.get("Timestamp", ""),
-                "english": row.get("English", ""),
-                "portuguese": row.get("Portuguese", ""),
+                "timestamp": col(row, "Timestamp"),
+                "english": col(row, "English"),
+                "portuguese": col(row, "Portuguese"),
                 "original": original,
                 "explanation": explanation,
             })
