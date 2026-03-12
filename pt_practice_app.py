@@ -28,6 +28,8 @@ from functools import wraps
 
 import anthropic
 import gspread
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, render_template_string, Response, send_file
 from google.oauth2.service_account import Credentials
@@ -45,6 +47,49 @@ CLAUDE_MODEL            = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 APP_PASSWORD            = os.getenv("APP_PASSWORD", "")
 EMAIL_ADDRESS           = os.getenv("EMAIL_ADDRESS", "tomlloyd12@gmail.com")
 EMAIL_APP_PASSWORD      = os.getenv("EMAIL_APP_PASSWORD", "")
+DATABASE_URL            = os.getenv("DATABASE_URL", "")
+
+# ── Database ──────────────────────────────────────────────────────────────────
+
+def get_db():
+    return psycopg2.connect(DATABASE_URL)
+
+def init_db():
+    if not DATABASE_URL:
+        return
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS logs (
+                        id SERIAL PRIMARY KEY,
+                        timestamp TIMESTAMP DEFAULT NOW(),
+                        type VARCHAR(20),
+                        english TEXT,
+                        portuguese TEXT,
+                        status VARCHAR(20),
+                        notes TEXT
+                    )
+                """)
+            conn.commit()
+    except Exception as exc:
+        print(f"[DB init error] {exc}")
+
+def log_to_db(type_, english, portuguese, status="", notes=""):
+    if not DATABASE_URL:
+        return
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO logs (type, english, portuguese, status, notes) VALUES (%s, %s, %s, %s, %s)",
+                    (type_, english, portuguese, status, notes)
+                )
+            conn.commit()
+    except Exception as exc:
+        print(f"[DB log error] {exc}")
+
+init_db()
 
 # ── Password protection ────────────────────────────────────────────────────────
 def require_password(f):
@@ -196,6 +241,7 @@ def api_translate():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
+    log_to_db("Translation", english, portuguese)
     log_to_sheet("Translation", english, portuguese)
     return jsonify({"english": english, "portuguese": portuguese})
 
@@ -215,52 +261,47 @@ def api_check():
 
     explanation = result.get("explanation", "")
     notes = f"You wrote: {portuguese_input}" + (f" — {explanation}" if explanation else "")
-    log_to_sheet(
-        "Correction",
-        result.get("english_translation", ""),
-        result.get("correct_portuguese", portuguese_input),
-        "Correct" if result.get("is_correct") else "Incorrect",
-        notes,
-    )
+    status = "Correct" if result.get("is_correct") else "Incorrect"
+    english = result.get("english_translation", "")
+    portuguese = result.get("correct_portuguese", portuguese_input)
+    log_to_db("Correction", english, portuguese, status, notes)
+    log_to_sheet("Correction", english, portuguese, status, notes)
     return jsonify(result)
 
 
 # ── Flashcard helpers ─────────────────────────────────────────────────────────
 
 def get_mistakes():
-    """Fetch all Incorrect rows from Google Sheets."""
-    ws = get_worksheet()
-    all_values = ws.get_all_values()
-    if not all_values:
+    """Fetch all Incorrect rows from the database."""
+    if not DATABASE_URL:
         return []
-
-    # Use raw rows to avoid gspread failing on empty/duplicate header columns
-    headers = all_values[0]
-    def col(row, name):
-        try:
-            idx = headers.index(name)
-            return row[idx] if idx < len(row) else ""
-        except ValueError:
-            return ""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, timestamp, english, portuguese, notes
+                FROM logs
+                WHERE status = 'Incorrect'
+                ORDER BY timestamp DESC
+            """)
+            rows = cur.fetchall()
 
     mistakes = []
-    for row in all_values[1:]:
-        if col(row, "Status") == "Incorrect":
-            notes = col(row, "Notes")
-            original = ""
-            explanation = notes
-            if notes.startswith("You wrote: "):
-                parts = notes[len("You wrote: "):].split(" — ", 1)
-                original = parts[0]
-                explanation = parts[1] if len(parts) > 1 else ""
-            mistakes.append({
-                "id": str(uuid.uuid4()),
-                "timestamp": col(row, "Timestamp"),
-                "english": col(row, "English"),
-                "portuguese": col(row, "Portuguese"),
-                "original": original,
-                "explanation": explanation,
-            })
+    for row in rows:
+        notes = row["notes"] or ""
+        original = ""
+        explanation = notes
+        if notes.startswith("You wrote: "):
+            parts = notes[len("You wrote: "):].split(" — ", 1)
+            original = parts[0]
+            explanation = parts[1] if len(parts) > 1 else ""
+        mistakes.append({
+            "id": str(row["id"]),
+            "timestamp": str(row["timestamp"])[:16],
+            "english": row["english"] or "",
+            "portuguese": row["portuguese"] or "",
+            "original": original,
+            "explanation": explanation,
+        })
     return mistakes
 
 
