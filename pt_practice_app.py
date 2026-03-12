@@ -371,6 +371,19 @@ def flashcards_page():
     return render_template_string(FLASHCARDS_PAGE, mistakes=entries, error=error)
 
 
+@app.route("/api/log/<int:log_id>", methods=["DELETE"])
+@require_password
+def delete_log(log_id):
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM logs WHERE id = %s", (log_id,))
+            conn.commit()
+        return jsonify({"success": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/generate-flashcards", methods=["POST"])
 @require_password
 def api_generate_flashcards():
@@ -901,6 +914,16 @@ FLASHCARDS_PAGE = """<!doctype html>
     .type-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; }
     .type-badge.translation { background: #dbeafe; color: #1d4ed8; }
     .type-badge.correction  { background: var(--red-light); color: #dc2626; }
+    .delete-btn { background: none; border: none; cursor: pointer; color: var(--muted); padding: 5px 7px; border-radius: 6px; line-height: 1; transition: color .15s, background .15s; }
+    .delete-btn:hover { color: #dc2626; background: var(--red-light); }
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
+    .modal-overlay.show { display: flex; }
+    .modal { background: white; border-radius: 16px; padding: 28px 24px; max-width: 360px; width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+    .modal h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+    .modal p { font-size: 14px; color: var(--muted); margin-bottom: 22px; line-height: 1.6; }
+    .modal-actions { display: flex; gap: 10px; }
+    .btn-danger { background: #dc2626; color: white; }
+    .btn-danger:hover { background: #b91c1c; }
     .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
     .empty-icon { font-size: 40px; margin-bottom: 12px; display: block; }
     .spinner { display: inline-block; width: 16px; height: 16px; border: 2.5px solid rgba(255,255,255,.35); border-top-color: white; border-radius: 50%; animation: spin .6s linear infinite; }
@@ -949,12 +972,14 @@ FLASHCARDS_PAGE = """<!doctype html>
           <th>English</th>
           <th>You wrote</th>
           <th>Date</th>
+          <th style="width:36px"></th>
         </tr>
       </thead>
       <tbody>
         {% for m in mistakes %}
         <tr>
           <td><input type="checkbox" class="cb" onchange="updateCount()"
+            data-id="{{ m.id }}"
             data-english="{{ m.english }}"
             data-portuguese="{{ m.portuguese }}"
             data-original="{{ m.original }}"
@@ -977,6 +1002,9 @@ FLASHCARDS_PAGE = """<!doctype html>
             {% endif %}
           </td>
           <td class="ts">{{ m.timestamp[:10] if m.timestamp else '' }}</td>
+          <td><button class="delete-btn" onclick="deleteEntry('{{ m.id }}', this)" title="Delete">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          </button></td>
         </tr>
         {% endfor %}
       </tbody>
@@ -995,7 +1023,22 @@ FLASHCARDS_PAGE = """<!doctype html>
 
 <div class="toast" id="toast"></div>
 
+<!-- Delete confirmation modal -->
+<div class="modal-overlay" id="deleteModal">
+  <div class="modal">
+    <h3>Delete from log?</h3>
+    <p>Remove these <strong id="deleteCount">0</strong> entries from your practice log?<br>
+    <small style="color:#16a34a">✓ They'll stay in Google Sheets.</small></p>
+    <div class="modal-actions">
+      <button class="btn btn-danger" style="flex:1" onclick="confirmDelete()">Yes, delete</button>
+      <button class="btn btn-outline" style="flex:1" onclick="cancelDelete()">Keep them</button>
+    </div>
+  </div>
+</div>
+
 <script>
+  let pendingDeleteIds = [];
+
   function updateCount() {
     const checked = document.querySelectorAll('.cb:checked').length;
     document.getElementById('countChip').textContent = checked + ' selected';
@@ -1004,6 +1047,22 @@ FLASHCARDS_PAGE = """<!doctype html>
 
   function selectAll()  { document.querySelectorAll('.cb').forEach(c => c.checked = true);  updateCount(); }
   function selectNone() { document.querySelectorAll('.cb').forEach(c => c.checked = false); updateCount(); }
+
+  async function deleteEntry(id, btn) {
+    const row = btn.closest('tr');
+    row.style.opacity = '0.4';
+    try {
+      const resp = await fetch('/api/log/' + id, { method: 'DELETE' });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      row.remove();
+      updateCount();
+      showToast('Entry deleted', 'success');
+    } catch (e) {
+      row.style.opacity = '1';
+      showToast(e.message || 'Delete failed', 'error');
+    }
+  }
 
   async function generate() {
     const checked = [...document.querySelectorAll('.cb:checked')];
@@ -1028,20 +1087,13 @@ FLASHCARDS_PAGE = """<!doctype html>
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({cards}),
       });
-
-      if (resp.headers.get('Content-Type')?.includes('application/zip')) {
-        // No email configured — trigger download
-        const blob = await resp.blob();
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'flashcards.zip';
-        a.click();
-        showToast('Downloaded flashcards.zip', 'success');
-      } else {
-        const data = await resp.json();
-        if (data.error) throw new Error(data.error);
-        showToast(data.message, 'success');
-      }
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      showToast(data.message, 'success');
+      // Ask if they want to delete the sent entries
+      pendingDeleteIds = checked.map(c => c.dataset.id).filter(Boolean);
+      document.getElementById('deleteCount').textContent = pendingDeleteIds.length;
+      setTimeout(() => document.getElementById('deleteModal').classList.add('show'), 600);
     } catch (e) {
       showToast(e.message || 'Something went wrong', 'error');
     } finally {
@@ -1050,6 +1102,23 @@ FLASHCARDS_PAGE = """<!doctype html>
       spinner.style.display = 'none';
       updateCount();
     }
+  }
+
+  async function confirmDelete() {
+    document.getElementById('deleteModal').classList.remove('show');
+    for (const id of pendingDeleteIds) {
+      try { await fetch('/api/log/' + id, { method: 'DELETE' }); } catch (_) {}
+      const cb = document.querySelector('.cb[data-id="' + id + '"]');
+      if (cb) cb.closest('tr').remove();
+    }
+    pendingDeleteIds = [];
+    updateCount();
+    showToast('Entries deleted from log', 'success');
+  }
+
+  function cancelDelete() {
+    document.getElementById('deleteModal').classList.remove('show');
+    pendingDeleteIds = [];
   }
 
   function showToast(msg, type) {
