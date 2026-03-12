@@ -271,21 +271,21 @@ def api_check():
 
 # ── Flashcard helpers ─────────────────────────────────────────────────────────
 
-def get_mistakes():
-    """Fetch all Incorrect rows from the database."""
+def get_flashcard_entries():
+    """Fetch translations and incorrect corrections from the database."""
     if not DATABASE_URL:
-        return []
+        raise RuntimeError("DATABASE_URL is not set — database not configured.")
     with get_db() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                SELECT id, timestamp, english, portuguese, notes
+                SELECT id, timestamp, type, english, portuguese, status, notes
                 FROM logs
-                WHERE status = 'Incorrect'
+                WHERE type = 'Translation' OR status = 'Incorrect'
                 ORDER BY timestamp DESC
             """)
             rows = cur.fetchall()
 
-    mistakes = []
+    entries = []
     for row in rows:
         notes = row["notes"] or ""
         original = ""
@@ -294,15 +294,16 @@ def get_mistakes():
             parts = notes[len("You wrote: "):].split(" — ", 1)
             original = parts[0]
             explanation = parts[1] if len(parts) > 1 else ""
-        mistakes.append({
+        entries.append({
             "id": str(row["id"]),
             "timestamp": str(row["timestamp"])[:16],
+            "type": row["type"] or "",
             "english": row["english"] or "",
             "portuguese": row["portuguese"] or "",
             "original": original,
             "explanation": explanation,
         })
-    return mistakes
+    return entries
 
 
 def generate_flashcard_zip(cards):
@@ -367,12 +368,12 @@ def send_flashcard_email(zip_data, card_count):
 @require_password
 def flashcards_page():
     try:
-        mistakes = get_mistakes()
+        entries = get_flashcard_entries()
         error = None
     except Exception as exc:
-        mistakes = []
+        entries = []
         error = str(exc)
-    return render_template_string(FLASHCARDS_PAGE, mistakes=mistakes, error=error)
+    return render_template_string(FLASHCARDS_PAGE, mistakes=entries, error=error)
 
 
 @app.route("/api/generate-flashcards", methods=["POST"])
@@ -910,6 +911,9 @@ FLASHCARDS_PAGE = """<!doctype html>
     .wrong-text { color: var(--muted); font-size: 13px; }
     .expl { font-size: 12.5px; color: var(--muted); margin-top: 4px; font-style: italic; }
     .ts { font-size: 12px; color: var(--muted); }
+    .type-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; }
+    .type-badge.translation { background: #dbeafe; color: #1d4ed8; }
+    .type-badge.correction  { background: var(--red-light); color: #dc2626; }
     .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
     .empty-icon { font-size: 40px; margin-bottom: 12px; display: block; }
     .spinner { display: inline-block; width: 16px; height: 16px; border: 2.5px solid rgba(255,255,255,.35); border-top-color: white; border-radius: 50%; animation: spin .6s linear infinite; }
@@ -953,9 +957,10 @@ FLASHCARDS_PAGE = """<!doctype html>
       <thead>
         <tr>
           <th style="width:36px"></th>
-          <th>You wrote</th>
-          <th>Correct Portuguese</th>
+          <th style="width:90px">Type</th>
+          <th>Portuguese</th>
           <th>English</th>
+          <th>You wrote</th>
           <th>Date</th>
         </tr>
       </thead>
@@ -967,11 +972,23 @@ FLASHCARDS_PAGE = """<!doctype html>
             data-portuguese="{{ m.portuguese }}"
             data-original="{{ m.original }}"
           ></td>
-          <td><span class="wrong-text">{{ m.original or '—' }}</span>
-            {% if m.explanation %}<div class="expl">{{ m.explanation }}</div>{% endif %}
+          <td>
+            {% if m.type == 'Translation' %}
+              <span class="type-badge translation">Translate</span>
+            {% else %}
+              <span class="type-badge correction">Mistake</span>
+            {% endif %}
           </td>
           <td class="pt-text">{{ m.portuguese }}</td>
           <td>{{ m.english }}</td>
+          <td>
+            {% if m.original %}
+              <span class="wrong-text">{{ m.original }}</span>
+              {% if m.explanation %}<div class="expl">{{ m.explanation }}</div>{% endif %}
+            {% else %}
+              <span class="ts">—</span>
+            {% endif %}
+          </td>
           <td class="ts">{{ m.timestamp[:10] if m.timestamp else '' }}</td>
         </tr>
         {% endfor %}
