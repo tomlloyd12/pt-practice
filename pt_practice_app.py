@@ -12,16 +12,26 @@ Then open http://localhost:5001/ on your phone (same Wi-Fi network).
 Or access via http://<your-mac-ip>:5001/ on your phone.
 """
 
+import csv
+import io
 import json
 import os
+import smtplib
+import uuid
+import zipfile
 from datetime import datetime
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from functools import wraps
 
 import anthropic
 import gspread
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, render_template_string, Response
+from flask import Flask, jsonify, request, render_template_string, Response, send_file
 from google.oauth2.service_account import Credentials
+from gtts import gTTS
 
 load_dotenv()
 
@@ -32,7 +42,9 @@ ANTHROPIC_API_KEY       = os.getenv("ANTHROPIC_API_KEY", "")
 GOOGLE_SHEET_ID         = os.getenv("GOOGLE_SHEET_ID", "")
 GOOGLE_SHEET_TAB        = os.getenv("GOOGLE_SHEET_TAB", "PT Practice Log")
 CLAUDE_MODEL            = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
-APP_PASSWORD            = os.getenv("APP_PASSWORD", "")   # set this in Render env vars
+APP_PASSWORD            = os.getenv("APP_PASSWORD", "")
+EMAIL_ADDRESS           = os.getenv("EMAIL_ADDRESS", "tomlloyd12@gmail.com")
+EMAIL_APP_PASSWORD      = os.getenv("EMAIL_APP_PASSWORD", "")
 
 # ── Password protection ────────────────────────────────────────────────────────
 def require_password(f):
@@ -211,6 +223,133 @@ def api_check():
         notes,
     )
     return jsonify(result)
+
+
+# ── Flashcard helpers ─────────────────────────────────────────────────────────
+
+def get_mistakes():
+    """Fetch all Incorrect rows from Google Sheets."""
+    ws = get_worksheet()
+    rows = ws.get_all_records()
+    mistakes = []
+    for row in rows:
+        if row.get("Status") == "Incorrect":
+            notes = row.get("Notes", "")
+            # Extract original input from "You wrote: X — explanation"
+            original = ""
+            explanation = notes
+            if notes.startswith("You wrote: "):
+                parts = notes[len("You wrote: "):].split(" — ", 1)
+                original = parts[0]
+                explanation = parts[1] if len(parts) > 1 else ""
+            mistakes.append({
+                "id": str(uuid.uuid4()),
+                "timestamp": row.get("Timestamp", ""),
+                "english": row.get("English", ""),
+                "portuguese": row.get("Portuguese", ""),
+                "original": original,
+                "explanation": explanation,
+            })
+    return mistakes
+
+
+def generate_flashcard_zip(cards):
+    """Generate a ZIP containing flashcards.csv + MP3 audio files."""
+    csv_buf = io.StringIO()
+    writer = csv.writer(csv_buf)
+    writer.writerow(["English", "Correct Portuguese", "You wrote", "Sound"])
+
+    audio_files = {}
+    for card in cards:
+        pt = card.get("portuguese", "")
+        filename = ""
+        if pt:
+            try:
+                mp3_buf = io.BytesIO()
+                gTTS(text=pt, lang="pt", tld="pt").write_to_fp(mp3_buf)
+                filename = f"{uuid.uuid4().hex[:8]}.mp3"
+                audio_files[filename] = mp3_buf.getvalue()
+            except Exception as exc:
+                print(f"[Audio error] {exc}")
+        writer.writerow([
+            card.get("english", ""),
+            pt,
+            card.get("original", ""),
+            f"[sound:{filename}]" if filename else "",
+        ])
+
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("flashcards.csv", csv_buf.getvalue())
+        for name, data in audio_files.items():
+            zf.writestr(name, data)
+    zip_buf.seek(0)
+    return zip_buf.read()
+
+
+def send_flashcard_email(zip_data, card_count):
+    """Email the flashcard ZIP via Gmail SMTP."""
+    msg = MIMEMultipart()
+    msg["From"]    = EMAIL_ADDRESS
+    msg["To"]      = EMAIL_ADDRESS
+    msg["Subject"] = f"PT Flashcards — {card_count} card{'s' if card_count != 1 else ''}"
+    msg.attach(MIMEText(
+        f"Your {card_count} Portuguese mistake flashcard{'s are' if card_count != 1 else ' is'} attached.\n\n"
+        "Import flashcards.csv into Anki. Put the MP3 files in your Anki media folder.",
+        "plain"
+    ))
+    part = MIMEBase("application", "zip")
+    part.set_payload(zip_data)
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", "attachment", filename="flashcards.zip")
+    msg.attach(part)
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(EMAIL_ADDRESS, EMAIL_APP_PASSWORD)
+        server.send_message(msg)
+
+
+# ── Flashcard routes ───────────────────────────────────────────────────────────
+
+@app.route("/flashcards")
+@require_password
+def flashcards_page():
+    try:
+        mistakes = get_mistakes()
+        error = None
+    except Exception as exc:
+        mistakes = []
+        error = str(exc)
+    return render_template_string(FLASHCARDS_PAGE, mistakes=mistakes, error=error)
+
+
+@app.route("/api/generate-flashcards", methods=["POST"])
+@require_password
+def api_generate_flashcards():
+    data = request.get_json(force=True) or {}
+    cards = data.get("cards", [])
+    if not cards:
+        return jsonify({"error": "No cards selected."}), 400
+
+    try:
+        zip_data = generate_flashcard_zip(cards)
+    except Exception as exc:
+        return jsonify({"error": f"Failed to generate ZIP: {exc}"}), 500
+
+    if EMAIL_APP_PASSWORD:
+        try:
+            send_flashcard_email(zip_data, len(cards))
+            return jsonify({"success": True, "message": f"Emailed {len(cards)} flashcard{'s' if len(cards) != 1 else ''} to {EMAIL_ADDRESS}"})
+        except Exception as exc:
+            return jsonify({"error": f"ZIP created but email failed: {exc}"}), 500
+    else:
+        # No email configured — send the ZIP as a download instead
+        return send_file(
+            io.BytesIO(zip_data),
+            as_attachment=True,
+            download_name="flashcards.zip",
+            mimetype="application/zip",
+        )
 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
@@ -473,6 +612,7 @@ PAGE = """<!doctype html>
 <header>
   <span class="flag">🇵🇹</span>
   <h1>PT Practice</h1>
+  <a href="/flashcards" style="margin-left:auto;color:rgba(255,255,255,.85);font-size:13px;font-weight:600;text-decoration:none;background:rgba(255,255,255,.15);padding:5px 12px;border-radius:99px;">📚 Flashcards</a>
 </header>
 
 <div class="tabs">
@@ -672,6 +812,197 @@ PAGE = """<!doctype html>
   });
 </script>
 
+</body>
+</html>
+"""
+
+FLASHCARDS_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#166534">
+  <title>PT Flashcards</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --green-dark: #14532d; --green: #166534; --green-mid: #16a34a;
+      --green-light: #dcfce7; --red-light: #fee2e2; --bg: #f1f5f9;
+      --surface: #fff; --border: #e2e8f0; --text: #0f172a; --muted: #64748b;
+      --shadow: 0 1px 3px rgba(0,0,0,.07), 0 6px 20px rgba(0,0,0,.06);
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    header { background: var(--green); padding: 0 24px; display: flex; align-items: center; height: 56px; gap: 12px; }
+    header h1 { color: white; font-size: 17px; font-weight: 700; }
+    .back { color: rgba(255,255,255,.85); font-size: 13px; font-weight: 600; text-decoration: none; background: rgba(255,255,255,.15); padding: 5px 12px; border-radius: 99px; }
+    main { max-width: 900px; margin: 0 auto; padding: 28px 20px 60px; }
+    h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    .subtitle { font-size: 14px; color: var(--muted); margin-bottom: 24px; }
+    .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+    .btn { height: 40px; padding: 0 20px; border: none; border-radius: 8px; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; transition: background .15s, opacity .15s; }
+    .btn-primary { background: var(--green); color: white; }
+    .btn-primary:hover { background: var(--green-dark); }
+    .btn-primary:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-outline { background: white; color: var(--text); border: 1.5px solid var(--border); }
+    .btn-outline:hover { background: var(--bg); }
+    .count-chip { background: var(--green-light); color: var(--green); font-size: 13px; font-weight: 700; padding: 4px 12px; border-radius: 99px; margin-left: auto; }
+    .card-wrap { background: var(--surface); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    thead { background: #f8fafc; border-bottom: 1.5px solid var(--border); }
+    th { padding: 10px 14px; text-align: left; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); white-space: nowrap; }
+    td { padding: 14px; border-bottom: 1px solid var(--border); vertical-align: top; line-height: 1.5; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f8fafc; }
+    .cb { width: 17px; height: 17px; cursor: pointer; accent-color: var(--green); }
+    .pt-text { font-weight: 600; color: var(--green-dark); }
+    .wrong-text { color: var(--muted); font-size: 13px; }
+    .expl { font-size: 12.5px; color: var(--muted); margin-top: 4px; font-style: italic; }
+    .ts { font-size: 12px; color: var(--muted); }
+    .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+    .empty-icon { font-size: 40px; margin-bottom: 12px; display: block; }
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2.5px solid rgba(255,255,255,.35); border-top-color: white; border-radius: 50%; animation: spin .6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .toast { display: none; position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); padding: 14px 22px; border-radius: 12px; font-size: 14px; font-weight: 600; box-shadow: 0 8px 30px rgba(0,0,0,.18); z-index: 99; white-space: nowrap; }
+    .toast.success { background: var(--green); color: white; }
+    .toast.error   { background: #dc2626; color: white; }
+    .toast.show { display: block; animation: slideUp .25s ease; }
+    @keyframes slideUp { from { transform: translateX(-50%) translateY(12px); opacity: 0; } to { transform: translateX(-50%) translateY(0); opacity: 1; } }
+    .error-banner { background: var(--red-light); border: 1.5px solid #fca5a5; border-radius: 10px; padding: 14px 16px; margin-bottom: 20px; font-size: 14px; color: #dc2626; }
+  </style>
+</head>
+<body>
+<header>
+  <span style="font-size:20px">🇵🇹</span>
+  <h1>Mistake Flashcards</h1>
+  <a href="/" class="back" style="margin-left:auto">← Back to Practice</a>
+</header>
+
+<main>
+  <h2>Your mistakes</h2>
+  <p class="subtitle">Select the sentences you want to drill, then generate Anki flashcards with audio.</p>
+
+  {% if error %}
+  <div class="error-banner">⚠️ Could not load mistakes: {{ error }}</div>
+  {% endif %}
+
+  {% if mistakes %}
+  <div class="toolbar">
+    <button class="btn btn-outline" onclick="selectAll()">Select all</button>
+    <button class="btn btn-outline" onclick="selectNone()">Deselect all</button>
+    <span class="count-chip" id="countChip">0 selected</span>
+    <button class="btn btn-primary" id="generateBtn" onclick="generate()" disabled>
+      <span class="btn-label">Generate &amp; Email Flashcards</span>
+      <span class="spinner" style="display:none"></span>
+    </button>
+  </div>
+
+  <div class="card-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:36px"></th>
+          <th>You wrote</th>
+          <th>Correct Portuguese</th>
+          <th>English</th>
+          <th>Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in mistakes %}
+        <tr>
+          <td><input type="checkbox" class="cb" onchange="updateCount()"
+            data-english="{{ m.english }}"
+            data-portuguese="{{ m.portuguese }}"
+            data-original="{{ m.original }}"
+          ></td>
+          <td><span class="wrong-text">{{ m.original or '—' }}</span>
+            {% if m.explanation %}<div class="expl">{{ m.explanation }}</div>{% endif %}
+          </td>
+          <td class="pt-text">{{ m.portuguese }}</td>
+          <td>{{ m.english }}</td>
+          <td class="ts">{{ m.timestamp[:10] if m.timestamp else '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% else %}
+  <div class="card-wrap">
+    <div class="empty">
+      <span class="empty-icon">🎉</span>
+      <p>No mistakes logged yet.<br>Use the Check tab to practise and your errors will appear here.</p>
+    </div>
+  </div>
+  {% endif %}
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  function updateCount() {
+    const checked = document.querySelectorAll('.cb:checked').length;
+    document.getElementById('countChip').textContent = checked + ' selected';
+    document.getElementById('generateBtn').disabled = checked === 0;
+  }
+
+  function selectAll()  { document.querySelectorAll('.cb').forEach(c => c.checked = true);  updateCount(); }
+  function selectNone() { document.querySelectorAll('.cb').forEach(c => c.checked = false); updateCount(); }
+
+  async function generate() {
+    const checked = [...document.querySelectorAll('.cb:checked')];
+    if (!checked.length) return;
+
+    const cards = checked.map(c => ({
+      english:    c.dataset.english,
+      portuguese: c.dataset.portuguese,
+      original:   c.dataset.original,
+    }));
+
+    const btn     = document.getElementById('generateBtn');
+    const label   = btn.querySelector('.btn-label');
+    const spinner = btn.querySelector('.spinner');
+    btn.disabled   = true;
+    label.style.display  = 'none';
+    spinner.style.display = 'inline-block';
+
+    try {
+      const resp = await fetch('/api/generate-flashcards', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({cards}),
+      });
+
+      if (resp.headers.get('Content-Type')?.includes('application/zip')) {
+        // No email configured — trigger download
+        const blob = await resp.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'flashcards.zip';
+        a.click();
+        showToast('Downloaded flashcards.zip', 'success');
+      } else {
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error);
+        showToast(data.message, 'success');
+      }
+    } catch (e) {
+      showToast(e.message || 'Something went wrong', 'error');
+    } finally {
+      btn.disabled = false;
+      label.style.display  = 'inline';
+      spinner.style.display = 'none';
+      updateCount();
+    }
+  }
+
+  function showToast(msg, type) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast ' + type + ' show';
+    setTimeout(() => t.classList.remove('show'), 4000);
+  }
+</script>
 </body>
 </html>
 """
