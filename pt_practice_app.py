@@ -29,6 +29,7 @@ from functools import wraps
 import anthropic
 import gspread
 import psycopg2
+import resend
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, render_template_string, Response, send_file
@@ -47,6 +48,7 @@ CLAUDE_MODEL            = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 APP_PASSWORD            = os.getenv("APP_PASSWORD", "")
 EMAIL_ADDRESS           = os.getenv("EMAIL_ADDRESS", "tomlloyd12@gmail.com")
 EMAIL_APP_PASSWORD      = os.getenv("EMAIL_APP_PASSWORD", "")
+RESEND_API_KEY          = os.getenv("RESEND_API_KEY", "")
 DATABASE_URL            = os.getenv("DATABASE_URL", "")
 
 # ── Database ──────────────────────────────────────────────────────────────────
@@ -341,25 +343,18 @@ def generate_flashcard_zip(cards):
 
 
 def send_flashcard_email(zip_data, card_count):
-    """Email the flashcard ZIP via Gmail SMTP."""
-    msg = MIMEMultipart()
-    msg["From"]    = EMAIL_ADDRESS
-    msg["To"]      = EMAIL_ADDRESS
-    msg["Subject"] = f"PT Flashcards — {card_count} card{'s' if card_count != 1 else ''}"
-    msg.attach(MIMEText(
-        f"Your {card_count} Portuguese mistake flashcard{'s are' if card_count != 1 else ' is'} attached.\n\n"
-        "Import flashcards.csv into Anki. Put the MP3 files in your Anki media folder.",
-        "plain"
-    ))
-    part = MIMEBase("application", "zip")
-    part.set_payload(zip_data)
-    encoders.encode_base64(part)
-    part.add_header("Content-Disposition", "attachment", filename="flashcards.zip")
-    msg.attach(part)
-
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(EMAIL_ADDRESS, EMAIL_APP_PASSWORD)
-        server.send_message(msg)
+    """Email the flashcard ZIP via Resend."""
+    resend.api_key = RESEND_API_KEY
+    resend.Emails.send({
+        "from": "PT Practice <onboarding@resend.dev>",
+        "to": [EMAIL_ADDRESS],
+        "subject": f"PT Flashcards — {card_count} card{'s' if card_count != 1 else ''}",
+        "html": (
+            f"<p>Your {card_count} Portuguese flashcard{'s are' if card_count != 1 else ' is'} attached.</p>"
+            "<p>Import <strong>flashcards.csv</strong> into Anki and put the MP3 files in your Anki media folder.</p>"
+        ),
+        "attachments": [{"filename": "flashcards.zip", "content": list(zip_data)}],
+    })
 
 
 # ── Flashcard routes ───────────────────────────────────────────────────────────
@@ -387,11 +382,11 @@ def api_generate_flashcards():
 
         zip_data = generate_flashcard_zip(cards)
 
-        if EMAIL_APP_PASSWORD:
+        if RESEND_API_KEY:
             send_flashcard_email(zip_data, len(cards))
             return jsonify({"success": True, "message": f"Emailed {len(cards)} flashcard{'s' if len(cards) != 1 else ''} to {EMAIL_ADDRESS}"})
         else:
-            return jsonify({"error": "No EMAIL_APP_PASSWORD set — please add it in Render environment variables."}), 500
+            return jsonify({"error": "No RESEND_API_KEY set — please add it in Render environment variables."}), 500
 
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500

@@ -11,3 +11,4 @@ google-auth
 python-dotenv
 gunicorn
 psycopg2-binary
+resend
