@@ -55,7 +55,7 @@ DATABASE_URL            = os.getenv("DATABASE_URL", "")
 # ── Database ──────────────────────────────────────────────────────────────────
 
 def get_db():
-    return psycopg2.connect(DATABASE_URL)
+    return psycopg2.connect(DATABASE_URL, connect_timeout=10)
 
 def init_db():
     if not DATABASE_URL:
