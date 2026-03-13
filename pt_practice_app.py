@@ -376,14 +376,6 @@ def practice_advance():
     data = request.get_json(force=True) or {}
     practice_state["results"].append(data)
     practice_state["current"] += 1
-    # Auto-log non-correct results to DB so they appear in flashcards
-    if data.get("score") != "correct":
-        english    = data.get("english", "")
-        portuguese = data.get("correct_translation", "")
-        user_wrote = data.get("user_translation", "")
-        feedback   = data.get("feedback", "")
-        notes = f"You wrote: {user_wrote}" + (f" — {feedback}" if feedback else "")
-        log_to_db("Practice", english, portuguese, "Incorrect", notes)
     return jsonify({"ok": True})
 
 
@@ -409,6 +401,23 @@ def practice_generate_sentence():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
     return jsonify({"sentence": sentence})
+
+
+@app.route("/practice/add-to-flashcards", methods=["POST"])
+@require_password
+def practice_add_to_flashcards():
+    data = request.get_json(force=True) or {}
+    items = data.get("items", [])
+    count = 0
+    for item in items:
+        english    = item.get("english", "")
+        portuguese = item.get("portuguese", "")
+        user_wrote = item.get("user_wrote", "")
+        feedback   = item.get("feedback", "")
+        notes = f"You wrote: {user_wrote}" + (f" — {feedback}" if feedback else "")
+        log_to_db("Practice", english, portuguese, "Incorrect", notes)
+        count += 1
+    return jsonify({"ok": True, "count": count})
 
 
 # ── Flashcard helpers ─────────────────────────────────────────────────────────
@@ -1353,11 +1362,18 @@ _PRACTICE_CSS = """
     .btn-regen { height:28px; padding:0 12px; background:none; border:1.5px solid var(--border); border-radius:6px; font-family:inherit; font-size:12px; font-weight:500; color:var(--muted); cursor:pointer; transition:border-color .15s,color .15s; }
     .btn-regen:hover { border-color:var(--green-mid); color:var(--green); }
     .btn-regen:disabled { opacity:.5; cursor:not-allowed; }
-    .flash-note { background:var(--green-light); border:1.5px solid #86efac; border-radius:10px; padding:12px 16px; font-size:14px; color:var(--green-dark); margin-bottom:16px; }
+    .flash-note { background:var(--green-light); border:1.5px solid #86efac; border-radius:10px; padding:12px 16px; font-size:14px; color:var(--green-dark); margin-bottom:12px; }
     .spinner { display:inline-block; width:18px; height:18px; border:2.5px solid rgba(255,255,255,.35); border-top-color:white; border-radius:50%; animation:spin .6s linear infinite; }
     @keyframes spin { to { transform:rotate(360deg); } }
     .btn.loading .btn-label { display:none; }
     .btn.loading .spinner { display:block; }
+    .toolbar { display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+    .count-chip { background:var(--green-light); color:var(--green); font-size:13px; font-weight:700; padding:4px 12px; border-radius:99px; }
+    .toast { display:none; position:fixed; bottom:28px; left:50%; transform:translateX(-50%); padding:14px 22px; border-radius:12px; font-size:14px; font-weight:600; box-shadow:0 8px 30px rgba(0,0,0,.18); z-index:99; white-space:nowrap; }
+    .toast.show { display:block; animation:slideUp .25s ease; }
+    .toast.success { background:var(--green); color:white; }
+    .toast.error   { background:#dc2626; color:white; }
+    @keyframes slideUp { from { transform:translateX(-50%) translateY(10px); opacity:0; } to { transform:translateX(-50%) translateY(0); opacity:1; } }
 """
 
 PRACTICE_START_PAGE = """<!doctype html>
@@ -1549,31 +1565,52 @@ PRACTICE_SUMMARY_PAGE = """<!doctype html>
 
   {% if n_partial > 0 or n_wrong > 0 %}
   <div class="flash-note">
-    ✓ {{ n_partial + n_wrong }} mistake{{ 's' if (n_partial + n_wrong) != 1 else '' }} added to your flashcards
+    Tick the mistakes you want to save as flashcards, then click <strong>Add to Flashcards</strong>.
+  </div>
+  <div class="toolbar">
+    <button class="btn btn-outline btn-sm" onclick="selectAll()">Select all</button>
+    <button class="btn btn-outline btn-sm" onclick="selectNone()">Deselect all</button>
+    <span class="count-chip" id="countChip" style="margin-left:auto">0 selected</span>
+    <button class="btn btn-primary btn-sm" id="addBtn" onclick="addToFlashcards()" disabled>
+      <span class="btn-label">Add to Flashcards</span>
+      <span class="spinner" style="display:none"></span>
+    </button>
   </div>
   {% endif %}
 
   {% for r in results %}
   {% if r.score != 'correct' %}
+  {% set outer_idx = loop.index %}
   <div class="sentence-group">
     <div class="sentence-ctx">
-      <span class="sbadge {{ r.score }}">{% if r.score == 'partial' %}~ Partial{% else %}✗ Wrong{% endif %}</span>
-      <div class="ctx-en">{{ r.english }}</div>
-      {% if r.user_translation %}<div class="ctx-yours">You wrote: {{ r.user_translation }}</div>{% endif %}
+      <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+        <input type="checkbox" class="fc-cb" onchange="updateCount()"
+          data-english="{{ r.english | e }}"
+          data-portuguese="{{ r.correct_translation | e }}"
+          data-user-wrote="{{ r.user_translation | default('') | e }}"
+          data-feedback="{{ r.feedback | default('') | e }}"
+          style="margin-top:3px;width:17px;height:17px;accent-color:#166534;flex-shrink:0;cursor:pointer;"
+        >
+        <div style="flex:1">
+          <span class="sbadge {{ r.score }}">{% if r.score == 'partial' %}~ Partial{% else %}✗ Wrong{% endif %}</span>
+          <div class="ctx-en">{{ r.english }}</div>
+          {% if r.user_translation %}<div class="ctx-yours">You wrote: {{ r.user_translation }}</div>{% endif %}
+        </div>
+      </label>
     </div>
 
     {% if r.mistakes %}
       {% for m in r.mistakes %}
       <div class="mistake-card">
-        <div class="mc-phrase">{{ m.pt_key_phrase }}<span class="mc-gloss">{% if m.en_key_phrase %}({{ m.en_key_phrase }}){% endif %}</span></div>
+        <div class="mc-phrase">{{ m.pt_key_phrase }}<span class="mc-gloss">{% if m.en_key_phrase %} ({{ m.en_key_phrase }}){% endif %}</span></div>
         <div class="mc-feedback">{{ m.feedback }}</div>
         <div class="sentence-wrap">
           <div class="slbl">Example sentence</div>
-          <div class="sval" id="sentence-{{ loop.index0 }}-{{ loop.index0 }}">{{ r.correct_translation }}</div>
+          <div class="sval" id="sent-{{ outer_idx }}-{{ loop.index0 }}">{{ r.correct_translation }}</div>
         </div>
         <button class="btn-regen"
           data-phrase="{{ m.pt_key_phrase | e }}"
-          data-target="sentence-{{ loop.index0 }}-{{ loop.index0 }}"
+          data-target="sent-{{ outer_idx }}-{{ loop.index0 }}"
           onclick="regenerate(this)">↻ New sentence</button>
       </div>
       {% endfor %}
@@ -1590,16 +1627,66 @@ PRACTICE_SUMMARY_PAGE = """<!doctype html>
   {% endif %}
   {% endfor %}
 
-  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
     <a href="/practice/" class="btn btn-outline btn-sm">← New practice</a>
     <a href="/flashcards" class="btn btn-primary btn-sm">📚 Go to flashcards</a>
   </div>
 </main>
 
+<div class="toast" id="toast"></div>
+
 <script>
+  function updateCount() {
+    const n = document.querySelectorAll('.fc-cb:checked').length;
+    document.getElementById('countChip').textContent = n + ' selected';
+    document.getElementById('addBtn').disabled = n === 0;
+  }
+
+  function selectAll()  { document.querySelectorAll('.fc-cb:not(:disabled)').forEach(c => c.checked = true);  updateCount(); }
+  function selectNone() { document.querySelectorAll('.fc-cb').forEach(c => c.checked = false); updateCount(); }
+
+  async function addToFlashcards() {
+    const checked = [...document.querySelectorAll('.fc-cb:checked')];
+    if (!checked.length) return;
+
+    const items = checked.map(c => ({
+      english:    c.dataset.english,
+      portuguese: c.dataset.portuguese,
+      user_wrote: c.dataset.userWrote,
+      feedback:   c.dataset.feedback,
+    }));
+
+    const btn = document.getElementById('addBtn');
+    btn.disabled = true;
+    btn.querySelector('.btn-label').style.display = 'none';
+    btn.querySelector('.spinner').style.display = 'inline-block';
+
+    try {
+      const resp = await fetch('/practice/add-to-flashcards', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({items}),
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      // Dim and disable the rows that were added
+      checked.forEach(c => {
+        c.checked = false;
+        c.disabled = true;
+        c.closest('.sentence-group').style.opacity = '0.5';
+      });
+      showToast(`${data.count} sentence${data.count !== 1 ? 's' : ''} added to flashcards ✓`);
+    } catch(e) {
+      showToast('Error: ' + (e.message || 'Something went wrong'), 'error');
+    } finally {
+      btn.querySelector('.btn-label').style.display = '';
+      btn.querySelector('.spinner').style.display = 'none';
+      updateCount();
+    }
+  }
+
   async function regenerate(btn) {
-    const phrase  = btn.dataset.phrase;
-    const target  = btn.dataset.target;
+    const phrase = btn.dataset.phrase;
+    const target = btn.dataset.target;
     btn.disabled = true;
     btn.textContent = '↻ Generating…';
     try {
@@ -1612,6 +1699,15 @@ PRACTICE_SUMMARY_PAGE = """<!doctype html>
     } catch(e) {}
     btn.disabled = false;
     btn.textContent = '↻ New sentence';
+  }
+
+  let _toastTimer;
+  function showToast(msg, type = 'success') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show ' + type;
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => t.classList.remove('show'), 4000);
   }
 </script>
 </body></html>
