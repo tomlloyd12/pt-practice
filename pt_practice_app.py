@@ -322,6 +322,58 @@ def generate_practice_sentence(pt_key_phrase: str) -> str:
     return resp.content[0].text.strip().strip('"')
 
 
+def fetch_article_paragraph(topic: str = "") -> str:
+    """Fetch a real paragraph from Wikipedia for translation practice."""
+    import urllib.parse
+    if topic.strip():
+        slug = urllib.parse.quote(topic.strip().replace(" ", "_"))
+        url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{slug}"
+    else:
+        url = "https://en.wikipedia.org/api/rest_v1/page/random/summary"
+    resp = requests.get(
+        url,
+        headers={"User-Agent": "PT-Practice-App/1.0 (language-learning)"},
+        timeout=8,
+    )
+    if resp.status_code == 404:
+        raise ValueError(f'No Wikipedia article found for "{topic}"')
+    resp.raise_for_status()
+    data = resp.json()
+    extract = (data.get("extract") or "").strip()
+    # Take the first paragraph only
+    first_para = extract.split("\n")[0].strip()
+    if len(first_para) < 60:
+        raise ValueError("Article too short — try a different topic or fetch another")
+    # Limit to 5 sentences
+    sentences = re.split(r'(?<=[.!?])\s+', first_para)
+    return " ".join(sentences[:5])
+
+
+def generate_practice_paragraph(topic: str = "", difficulty: str = "intermediate") -> str:
+    """Use Claude to generate an English paragraph for translation practice."""
+    diff_map = {
+        "beginner":     "short, simple sentences with common everyday vocabulary (A2 level)",
+        "intermediate": "natural flowing prose with some idiomatic expressions (B1-B2 level)",
+        "advanced":     "sophisticated language with complex sentence structures (C1 level)",
+    }
+    diff_desc = diff_map.get(difficulty, diff_map["intermediate"])
+    topic_clause = (
+        f" about {topic.strip()}" if topic.strip()
+        else " on an everyday topic (travel, food, weather, city life, or nature)"
+    )
+    prompt = (
+        f"Write a natural English paragraph{topic_clause} for Portuguese translation practice. "
+        f"4-5 sentences. Use {diff_desc}. Write natural flowing prose, not a list. "
+        "Return only the paragraph, nothing else."
+    )
+    resp = claude_client().messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=250,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.content[0].text.strip()
+
+
 # ── Practice routes ────────────────────────────────────────────────────────────
 
 @app.route("/practice/")
@@ -401,6 +453,22 @@ def practice_generate_sentence():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
     return jsonify({"sentence": sentence})
+
+
+@app.route("/practice/get-paragraph")
+@require_password
+def practice_get_paragraph():
+    source     = request.args.get("source", "ai")
+    topic      = request.args.get("topic", "").strip()
+    difficulty = request.args.get("difficulty", "intermediate")
+    try:
+        if source == "article":
+            text = fetch_article_paragraph(topic)
+        else:
+            text = generate_practice_paragraph(topic, difficulty)
+        return jsonify({"text": text})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/practice/add-to-flashcards", methods=["POST"])
@@ -1374,6 +1442,20 @@ _PRACTICE_CSS = """
     .toast.success { background:var(--green); color:white; }
     .toast.error   { background:#dc2626; color:white; }
     @keyframes slideUp { from { transform:translateX(-50%) translateY(10px); opacity:0; } to { transform:translateX(-50%) translateY(0); opacity:1; } }
+    /* Start page source picker */
+    .src-tabs { display:flex; gap:8px; margin-bottom:20px; }
+    .src-tab { flex:1; text-align:center; padding:10px 6px; border-radius:10px; border:1.5px solid var(--border); font-size:12px; font-weight:600; cursor:pointer; background:white; color:var(--muted); transition:all .15s; line-height:1.45; font-family:inherit; }
+    .src-tab.active { background:var(--green); color:white; border-color:var(--green); }
+    .src-panel { display:none; }
+    .src-panel.active { display:block; }
+    .topic-input { width:100%; padding:10px 12px; border:1.5px solid var(--border); border-radius:10px; font-family:inherit; font-size:16px; outline:none; transition:border-color .15s; color:var(--text); background:#fafafa; margin-bottom:10px; }
+    .topic-input:focus { border-color:var(--green-mid); background:white; box-shadow:0 0 0 3px rgba(22,163,74,.12); }
+    .diff-row { display:flex; gap:8px; margin-bottom:14px; }
+    .diff-btn { flex:1; padding:9px 4px; border-radius:8px; border:1.5px solid var(--border); font-size:12px; font-weight:600; cursor:pointer; background:white; color:var(--muted); transition:all .15s; text-align:center; font-family:inherit; }
+    .diff-btn.active { background:var(--green-light); color:var(--green-dark); border-color:var(--green-mid); }
+    .preview-lbl { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:6px; margin-top:16px; display:flex; justify-content:space-between; align-items:center; }
+    .btn-clear { background:none; border:none; font-size:12px; font-weight:600; color:var(--muted); cursor:pointer; padding:0; }
+    .btn-clear:hover { color:#dc2626; }
 """
 
 PRACTICE_START_PAGE = """<!doctype html>
@@ -1391,15 +1473,140 @@ PRACTICE_START_PAGE = """<!doctype html>
 </header>
 <main>
   <div class="card">
-    <h2>Translate English → Portuguese</h2>
-    <p>Paste any English text. Each sentence becomes a translation challenge. Mistakes are automatically added to your flashcards.</p>
-    <form method="post" action="/practice/start">
-      <label class="field-label" for="text">Paste your English text</label>
-      <textarea id="text" name="text" placeholder="e.g. I would like to go to the beach. The weather is beautiful today." rows="5" autofocus></textarea>
-      <button type="submit" class="btn btn-primary btn-block">Start practice →</button>
+    <h2>Choose your text</h2>
+    <p>Each sentence becomes a translation challenge into European Portuguese.</p>
+
+    <!-- Source tabs -->
+    <div class="src-tabs">
+      <button type="button" class="src-tab active" onclick="setMode('article')">📰 Real article</button>
+      <button type="button" class="src-tab" onclick="setMode('ai')">🤖 AI-generated</button>
+      <button type="button" class="src-tab" onclick="setMode('paste')">✏️ Paste text</button>
+    </div>
+
+    <!-- Article panel -->
+    <div id="panel-article" class="src-panel active">
+      <label class="field-label" for="article-topic">Topic (optional)</label>
+      <input type="text" id="article-topic" class="topic-input" placeholder="e.g. Lisbon, Portuguese cuisine, football…">
+      <button type="button" class="btn btn-outline btn-block" id="fetchBtn" onclick="getParagraph('article')">
+        <span class="btn-label">Fetch article paragraph →</span>
+        <span class="spinner" style="display:none;border-color:rgba(0,0,0,.2);border-top-color:var(--green);"></span>
+      </button>
+    </div>
+
+    <!-- AI panel -->
+    <div id="panel-ai" class="src-panel">
+      <label class="field-label" for="ai-topic">Topic (optional)</label>
+      <input type="text" id="ai-topic" class="topic-input" placeholder="e.g. travel, food, technology…">
+      <div class="field-label" style="margin-bottom:8px;">Difficulty</div>
+      <div class="diff-row">
+        <button type="button" class="diff-btn" onclick="setDiff('beginner')">🌱 Beginner</button>
+        <button type="button" class="diff-btn active" onclick="setDiff('intermediate')">🌿 Intermediate</button>
+        <button type="button" class="diff-btn" onclick="setDiff('advanced')">🌳 Advanced</button>
+      </div>
+      <button type="button" class="btn btn-outline btn-block" id="generateBtn" onclick="getParagraph('ai')">
+        <span class="btn-label">Generate paragraph →</span>
+        <span class="spinner" style="display:none;border-color:rgba(0,0,0,.2);border-top-color:var(--green);"></span>
+      </button>
+    </div>
+
+    <!-- Paste panel -->
+    <div id="panel-paste" class="src-panel">
+      <label class="field-label" for="text">Your English text</label>
+    </div>
+
+    <!-- Shared: preview label + textarea + start button -->
+    <form method="post" action="/practice/start" id="startForm">
+      <div id="previewWrap" style="display:none;">
+        <div class="preview-lbl">
+          <span>Text to practise</span>
+          <button type="button" class="btn-clear" onclick="clearText()">✕ Clear</button>
+        </div>
+      </div>
+      <textarea id="text" name="text"
+        placeholder="Paste your English text here…"
+        rows="5" style="display:none;margin-top:0;"></textarea>
+      <button type="submit" class="btn btn-primary btn-block" id="startBtn" disabled>
+        Start practice →
+      </button>
     </form>
   </div>
 </main>
+<div class="toast" id="toast"></div>
+<script>
+  let currentMode = 'article';
+  let currentDiff = 'intermediate';
+
+  function setMode(mode) {
+    currentMode = mode;
+    ['article','ai','paste'].forEach((m, i) => {
+      document.querySelectorAll('.src-tab')[i].classList.toggle('active', m === mode);
+    });
+    document.querySelectorAll('.src-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-' + mode).classList.add('active');
+    const ta = document.getElementById('text');
+    if (mode === 'paste') {
+      showTextarea(true);
+    } else if (!ta.value.trim()) {
+      ta.style.display = 'none';
+      document.getElementById('previewWrap').style.display = 'none';
+      document.getElementById('startBtn').disabled = true;
+    }
+  }
+
+  function setDiff(d) {
+    currentDiff = d;
+    ['beginner','intermediate','advanced'].forEach((v, i) => {
+      document.querySelectorAll('.diff-btn')[i].classList.toggle('active', v === d);
+    });
+  }
+
+  function showTextarea(focusIt) {
+    const ta = document.getElementById('text');
+    ta.style.display = 'block';
+    document.getElementById('previewWrap').style.display = currentMode === 'paste' ? 'none' : 'block';
+    document.getElementById('startBtn').disabled = !ta.value.trim();
+    ta.oninput = () => { document.getElementById('startBtn').disabled = !ta.value.trim(); };
+    if (focusIt) ta.focus();
+  }
+
+  function clearText() {
+    const ta = document.getElementById('text');
+    ta.value = '';
+    ta.style.display = 'none';
+    document.getElementById('previewWrap').style.display = 'none';
+    document.getElementById('startBtn').disabled = true;
+  }
+
+  async function getParagraph(source) {
+    const btnId = source === 'article' ? 'fetchBtn' : 'generateBtn';
+    const btn = document.getElementById(btnId);
+    const topic = document.getElementById(source === 'article' ? 'article-topic' : 'ai-topic').value.trim();
+    const params = new URLSearchParams({ source, topic, difficulty: currentDiff });
+    btn.querySelector('.btn-label').style.display = 'none';
+    btn.querySelector('.spinner').style.display = 'inline-block';
+    btn.disabled = true;
+    try {
+      const resp = await fetch('/practice/get-paragraph?' + params);
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      document.getElementById('text').value = data.text;
+      showTextarea(false);
+    } catch(e) {
+      showToast('Error: ' + (e.message || 'Could not fetch text'), 'error');
+    } finally {
+      btn.querySelector('.btn-label').style.display = '';
+      btn.querySelector('.spinner').style.display = 'none';
+      btn.disabled = false;
+    }
+  }
+
+  function showToast(msg, type='success') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show ' + type;
+    setTimeout(() => { t.className = 'toast'; }, 3500);
+  }
+</script>
 </body></html>
 """
 
