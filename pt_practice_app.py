@@ -287,11 +287,11 @@ def grade_translation_practice(english: str, user_pt: str) -> dict:
         f'English sentence: "{english}"\n'
         f'Student\'s European Portuguese: "{user_pt}"\n\n'
         "Grade this translation. Reply with a JSON object with exactly these keys:\n"
-        "- \"correct_translation\": the ideal European Portuguese translation (not Brazilian)\n"
+        "- \"correct_translation\": the ideal European Portuguese translation (not Brazilian). REQUIRED — always provide this.\n"
         "- \"score\": \"correct\", \"partial\", or \"wrong\"\n"
-        "- \"feedback\": 1 sentence overall summary\n"
-        "- \"mistakes\": array of mistake objects (empty if correct). Each object has:\n"
-        "  - \"pt_key_phrase\": the specific Portuguese word/phrase that was wrong\n"
+        "- \"feedback\": 1 sentence overall summary. REQUIRED — always provide this.\n"
+        "- \"mistakes\": array of mistake objects. REQUIRED for 'wrong' or 'partial' — always include at least one entry explaining the key error(s). Empty array only when score is 'correct'. Each object has:\n"
+        "  - \"pt_key_phrase\": the correct Portuguese word/phrase (what it should have been)\n"
         "  - \"en_key_phrase\": English meaning/gloss of that phrase\n"
         "  - \"feedback\": 1 sentence explaining this specific error\n"
         "  - \"worth_flashcard\": true if useful to study\n"
@@ -299,7 +299,7 @@ def grade_translation_practice(english: str, user_pt: str) -> dict:
     )
     raw = claude_client().messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=600,
+        max_tokens=700,
         messages=[{"role": "user", "content": prompt}],
     ).content[0].text.strip()
     if raw.startswith("```"):
@@ -1674,40 +1674,58 @@ PRACTICE_SENTENCE_PAGE = """<!doctype html>
     if (!userPt) return;
     const btn = document.getElementById('checkBtn');
     setLoading(btn, true);
-    const resp = await fetch('/practice/grade', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ english, user_pt: userPt }),
-    });
-    gradeResult = await resp.json();
-    gradeResult.english = english;
-    gradeResult.user_translation = userPt;
-    showFeedback(gradeResult);
-    setLoading(btn, false);
-    btn.style.display = 'none';
-    document.getElementById('translationInput').disabled = true;
-    document.getElementById('nextRow').style.display = 'block';
+    try {
+      const resp = await fetch('/practice/grade', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ english, user_pt: userPt }),
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      gradeResult = data;
+      gradeResult.english = english;
+      gradeResult.user_translation = userPt;
+      showFeedback(gradeResult);
+      btn.style.display = 'none';
+      document.getElementById('translationInput').disabled = true;
+      document.getElementById('nextRow').style.display = 'block';
+    } catch(e) {
+      alert('Grading failed: ' + (e.message || 'Unknown error. Please try again.'));
+    } finally {
+      setLoading(btn, false);
+    }
   }
 
   function showFeedback(r) {
-    const panel = document.getElementById('feedback');
-    panel.className = 'feedback ' + (r.score || 'wrong');
-    panel.style.display = 'block';
-    const badge = document.getElementById('scoreBadge');
-    badge.textContent = r.score === 'correct' ? '✓ Correct' : r.score === 'partial' ? '~ Partial' : '✗ Wrong';
+    const panel     = document.getElementById('feedback');
+    const cb        = document.getElementById('correctBlock');
+    const ml        = document.getElementById('mistakesList');
+    const badge     = document.getElementById('scoreBadge');
+
+    panel.className      = 'feedback ' + (r.score || 'wrong');
+    panel.style.display  = 'block';
+    badge.textContent    = r.score === 'correct' ? '✓ Correct' : r.score === 'partial' ? '~ Partial' : '✗ Wrong';
     document.getElementById('feedbackText').textContent = r.feedback || '';
-    document.getElementById('correctText').textContent = r.correct_translation || '';
+
     if (r.score === 'correct') {
-      document.getElementById('correctBlock').style.display = 'none';
-    }
-    const ml = document.getElementById('mistakesList');
-    if (r.mistakes && r.mistakes.length > 0) {
-      let html = '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#64748b;margin-bottom:8px;">Specific errors</div>';
-      for (const m of r.mistakes) {
-        html += `<div class="mistake-item"><strong>${m.pt_key_phrase}</strong>`;
-        if (m.en_key_phrase) html += ` <span class="mistake-gloss">(${m.en_key_phrase})</span>`;
-        html += `<br>${m.feedback}</div>`;
+      cb.style.display = 'none';
+      ml.style.display = 'none';
+    } else {
+      // Always show correct answer for wrong / partial
+      cb.style.display = 'block';
+      document.getElementById('correctText').textContent = r.correct_translation || '(not available)';
+      // Show specific mistakes if any
+      if (r.mistakes && r.mistakes.length > 0) {
+        let html = '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#64748b;margin-bottom:8px;">Specific errors</div>';
+        for (const m of r.mistakes) {
+          html += `<div class="mistake-item"><strong>${m.pt_key_phrase || ''}</strong>`;
+          if (m.en_key_phrase) html += ` <span class="mistake-gloss">(${m.en_key_phrase})</span>`;
+          html += `<br>${m.feedback || ''}</div>`;
+        }
+        ml.innerHTML = html;
+        ml.style.display = 'block';
+      } else {
+        ml.style.display = 'none';
       }
-      ml.innerHTML = html; ml.style.display = 'block';
     }
   }
 
