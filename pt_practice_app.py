@@ -533,12 +533,23 @@ def practice_add_to_flashcards():
     items = data.get("items", [])
     count = 0
     for item in items:
-        english    = item.get("english", "")
-        portuguese = item.get("portuguese", "")
+        english    = item.get("english", "")    # full English sentence
+        portuguese = item.get("portuguese", "") # specific PT phrase (or full sentence)
+        en_phrase  = item.get("en_phrase", "").strip()  # English gloss of the phrase
         user_wrote = item.get("user_wrote", "")
         feedback   = item.get("feedback", "")
-        notes = f"You wrote: {user_wrote}" + (f" — {feedback}" if feedback else "")
-        log_to_db("Practice", english, portuguese, "Incorrect", notes)
+        # Flashcard front: the specific English phrase if we have one, else the full sentence
+        fc_english = en_phrase if en_phrase else english
+        # Build notes with full context
+        notes_parts = []
+        if user_wrote:
+            notes_parts.append(f"You wrote: {user_wrote}")
+        if feedback:
+            notes_parts.append(feedback)
+        if en_phrase and english:
+            notes_parts.append(f"From: \"{english}\"")
+        notes = " — ".join(notes_parts)
+        log_to_db("Practice", fc_english, portuguese, "Incorrect", notes)
         count += 1
     return jsonify({"ok": True, "count": count})
 
@@ -1874,28 +1885,32 @@ PRACTICE_SUMMARY_PAGE = """<!doctype html>
   {% if r.score != 'correct' %}
   {% set outer_idx = loop.index %}
   <div class="sentence-group">
+    <!-- Sentence context header — no checkbox here any more -->
     <div class="sentence-ctx">
-      <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
-        <input type="checkbox" class="fc-cb" onchange="updateCount()"
-          data-english="{{ r.english | e }}"
-          data-portuguese="{{ r.correct_translation | e }}"
-          data-user-wrote="{{ r.user_translation | default('') | e }}"
-          data-feedback="{{ r.feedback | default('') | e }}"
-          style="margin-top:3px;width:17px;height:17px;accent-color:#166534;flex-shrink:0;cursor:pointer;"
-        >
-        <div style="flex:1">
-          <span class="sbadge {{ r.score }}">{% if r.score == 'partial' %}~ Partial{% else %}✗ Wrong{% endif %}</span>
-          <div class="ctx-en">{{ r.english }}</div>
-          {% if r.user_translation %}<div class="ctx-yours">You wrote: {{ r.user_translation }}</div>{% endif %}
-        </div>
-      </label>
+      <span class="sbadge {{ r.score }}">{% if r.score == 'partial' %}~ Partial{% else %}✗ Wrong{% endif %}</span>
+      <div class="ctx-en">{{ r.english }}</div>
+      {% if r.user_translation %}<div class="ctx-yours">You wrote: {{ r.user_translation }}</div>{% endif %}
     </div>
 
     {% if r.mistakes %}
       {% for m in r.mistakes %}
-      <div class="mistake-card">
-        <div class="mc-phrase">{{ m.pt_key_phrase }}<span class="mc-gloss">{% if m.en_key_phrase %} ({{ m.en_key_phrase }}){% endif %}</span></div>
-        <div class="mc-feedback">{{ m.feedback }}</div>
+      {% set mc_id = "mc-" ~ outer_idx ~ "-" ~ loop.index0 %}
+      <div class="mistake-card" id="{{ mc_id }}">
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:8px;">
+          <input type="checkbox" class="fc-cb" onchange="updateCount()"
+            data-card-id="{{ mc_id }}"
+            data-english="{{ r.english | e }}"
+            data-portuguese="{{ m.pt_key_phrase | e }}"
+            data-en-phrase="{{ m.en_key_phrase | default('') | e }}"
+            data-feedback="{{ m.feedback | default('') | e }}"
+            data-user-wrote="{{ r.user_translation | default('') | e }}"
+            style="margin-top:3px;width:17px;height:17px;accent-color:#166534;flex-shrink:0;cursor:pointer;"
+          >
+          <div style="flex:1">
+            <div class="mc-phrase">{{ m.pt_key_phrase }}<span class="mc-gloss">{% if m.en_key_phrase %} ({{ m.en_key_phrase }}){% endif %}</span></div>
+            <div class="mc-feedback">{{ m.feedback }}</div>
+          </div>
+        </label>
         <div class="sentence-wrap">
           <div class="slbl">Example sentence</div>
           <div class="sval" id="sent-{{ outer_idx }}-{{ loop.index0 }}">{{ r.correct_translation }}</div>
@@ -1907,8 +1922,23 @@ PRACTICE_SUMMARY_PAGE = """<!doctype html>
       </div>
       {% endfor %}
     {% else %}
-      <div class="mistake-card">
-        <div class="mc-feedback">{{ r.feedback }}</div>
+      <!-- Fallback when no specific mistakes were identified -->
+      {% set mc_id = "mc-" ~ outer_idx ~ "-0" %}
+      <div class="mistake-card" id="{{ mc_id }}">
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:8px;">
+          <input type="checkbox" class="fc-cb" onchange="updateCount()"
+            data-card-id="{{ mc_id }}"
+            data-english="{{ r.english | e }}"
+            data-portuguese="{{ r.correct_translation | e }}"
+            data-en-phrase=""
+            data-feedback="{{ r.feedback | default('') | e }}"
+            data-user-wrote="{{ r.user_translation | default('') | e }}"
+            style="margin-top:3px;width:17px;height:17px;accent-color:#166534;flex-shrink:0;cursor:pointer;"
+          >
+          <div style="flex:1">
+            <div class="mc-feedback">{{ r.feedback }}</div>
+          </div>
+        </label>
         <div class="sentence-wrap">
           <div class="slbl">Correct translation</div>
           <div class="sval">{{ r.correct_translation }}</div>
@@ -1944,6 +1974,7 @@ PRACTICE_SUMMARY_PAGE = """<!doctype html>
     const items = checked.map(c => ({
       english:    c.dataset.english,
       portuguese: c.dataset.portuguese,
+      en_phrase:  c.dataset.enPhrase,
       user_wrote: c.dataset.userWrote,
       feedback:   c.dataset.feedback,
     }));
@@ -1964,9 +1995,9 @@ PRACTICE_SUMMARY_PAGE = """<!doctype html>
       checked.forEach(c => {
         c.checked = false;
         c.disabled = true;
-        c.closest('.sentence-group').style.opacity = '0.5';
+        c.closest('.mistake-card').style.opacity = '0.5';
       });
-      showToast(`${data.count} sentence${data.count !== 1 ? 's' : ''} added to flashcards ✓`);
+      showToast(`${data.count} error${data.count !== 1 ? 's' : ''} added to flashcards ✓`);
     } catch(e) {
       showToast('Error: ' + (e.message || 'Something went wrong'), 'error');
     } finally {
