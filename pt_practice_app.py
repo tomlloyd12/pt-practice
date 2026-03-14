@@ -322,31 +322,86 @@ def generate_practice_sentence(pt_key_phrase: str) -> str:
     return resp.content[0].text.strip().strip('"')
 
 
-def fetch_article_paragraph(topic: str = "") -> str:
-    """Fetch a real paragraph from Wikipedia for translation practice."""
-    import urllib.parse
-    if topic.strip():
-        slug = urllib.parse.quote(topic.strip().replace(" ", "_"))
-        url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{slug}"
-    else:
-        url = "https://en.wikipedia.org/api/rest_v1/page/random/summary"
+_NEWS_FEEDS = [
+    ("BBC News",     "http://feeds.bbci.co.uk/news/rss.xml"),
+    ("BBC World",    "http://feeds.bbci.co.uk/news/world/rss.xml"),
+    ("The Guardian", "https://www.theguardian.com/world/rss"),
+    ("NPR News",     "https://feeds.npr.org/1001/rss.xml"),
+    ("Reuters",      "https://feeds.reuters.com/reuters/topNews"),
+]
+
+
+def _try_rss_feed(feed_url: str, feed_name: str, topic: str = ""):
+    """Return (text, feed_name) from one RSS feed, or None if nothing usable."""
+    import xml.etree.ElementTree as ET
+    import random
     resp = requests.get(
-        url,
+        feed_url,
         headers={"User-Agent": "PT-Practice-App/1.0 (language-learning)"},
         timeout=8,
     )
-    if resp.status_code == 404:
-        raise ValueError(f'No Wikipedia article found for "{topic}"')
     resp.raise_for_status()
-    data = resp.json()
-    extract = (data.get("extract") or "").strip()
-    # Take the first paragraph only
-    first_para = extract.split("\n")[0].strip()
-    if len(first_para) < 60:
-        raise ValueError("Article too short — try a different topic or fetch another")
-    # Limit to 5 sentences
-    sentences = re.split(r'(?<=[.!?])\s+', first_para)
-    return " ".join(sentences[:5])
+    root = ET.fromstring(resp.content)
+    items = list(root.findall(".//item"))
+    if not items:
+        return None
+    # Filter by topic keywords when given
+    if topic.strip():
+        kw = topic.lower().split()
+        matched = [i for i in items
+                   if any(w in (i.findtext("title", "") + " " + i.findtext("description", "")).lower()
+                          for w in kw)]
+        items = matched or items   # fall back to all items if no topic match
+    random.shuffle(items)
+    for item in items[:8]:
+        title = (item.findtext("title") or "").strip()
+        desc  = (item.findtext("description") or "").strip()
+        # Strip HTML tags and decode common entities
+        desc = re.sub(r"<[^>]+>", "", desc)
+        for ent, ch in [("&amp;","&"),("&lt;","<"),("&gt;",">"),("&quot;",'"'),("&#39;","'"),("&nbsp;"," ")]:
+            desc = desc.replace(ent, ch)
+        desc = re.sub(r"\s+", " ", desc).strip()
+        # Build text: title sentence + first 3 description sentences
+        parts = []
+        if title:
+            parts.append(title if title[-1] in ".!?" else title + ".")
+        if len(desc) > 20:
+            sents = re.split(r"(?<=[.!?])\s+", desc)
+            parts.extend(sents[:3])
+        text = " ".join(parts).strip()
+        if len(text) >= 100:
+            return text, feed_name
+    return None
+
+
+def fetch_article_paragraph(topic: str = ""):
+    """Fetch a paragraph from news RSS feeds; fall back to Wikipedia."""
+    import random
+    import urllib.parse
+    feeds = list(_NEWS_FEEDS)
+    random.shuffle(feeds)
+    for feed_name, feed_url in feeds:
+        try:
+            result = _try_rss_feed(feed_url, feed_name, topic)
+            if result:
+                return result
+        except Exception:
+            continue
+    # Wikipedia fallback
+    if topic.strip():
+        slug = urllib.parse.quote(topic.strip().replace(" ", "_"))
+        wiki_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{slug}"
+    else:
+        wiki_url = "https://en.wikipedia.org/api/rest_v1/page/random/summary"
+    wr = requests.get(wiki_url, headers={"User-Agent": "PT-Practice-App/1.0"}, timeout=8)
+    if wr.status_code == 404:
+        raise ValueError(f'No article found for "{topic}" — try a different topic')
+    wr.raise_for_status()
+    extract = (wr.json().get("extract") or "").strip().split("\n")[0].strip()
+    if len(extract) < 60:
+        raise ValueError("Article too short — try fetching again")
+    sentences = re.split(r"(?<=[.!?])\s+", extract)
+    return " ".join(sentences[:5]), "Wikipedia"
 
 
 def generate_practice_paragraph(topic: str = "", difficulty: str = "intermediate") -> str:
@@ -463,10 +518,10 @@ def practice_get_paragraph():
     difficulty = request.args.get("difficulty", "intermediate")
     try:
         if source == "article":
-            text = fetch_article_paragraph(topic)
+            text, src_name = fetch_article_paragraph(topic)
         else:
-            text = generate_practice_paragraph(topic, difficulty)
-        return jsonify({"text": text})
+            text, src_name = generate_practice_paragraph(topic, difficulty), None
+        return jsonify({"text": text, "source": src_name})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1521,6 +1576,9 @@ PRACTICE_START_PAGE = """<!doctype html>
           <span>Text to practise</span>
           <button type="button" class="btn-clear" onclick="clearText()">✕ Clear</button>
         </div>
+        <div id="sourceAttr" style="display:none;font-size:12px;color:var(--muted);margin-bottom:6px;">
+          📰 <span id="sourceName"></span>
+        </div>
       </div>
       <textarea id="text" name="text"
         placeholder="Paste your English text here…"
@@ -1574,6 +1632,8 @@ PRACTICE_START_PAGE = """<!doctype html>
     ta.value = '';
     ta.style.display = 'none';
     document.getElementById('previewWrap').style.display = 'none';
+    document.getElementById('sourceAttr').style.display = 'none';
+    document.getElementById('sourceName').textContent = '';
     document.getElementById('startBtn').disabled = true;
   }
 
@@ -1590,6 +1650,13 @@ PRACTICE_START_PAGE = """<!doctype html>
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
       document.getElementById('text').value = data.text;
+      const sa = document.getElementById('sourceAttr');
+      if (data.source) {
+        document.getElementById('sourceName').textContent = data.source;
+        sa.style.display = 'block';
+      } else {
+        sa.style.display = 'none';
+      }
       showTextarea(false);
     } catch(e) {
       showToast('Error: ' + (e.message || 'Could not fetch text'), 'error');
