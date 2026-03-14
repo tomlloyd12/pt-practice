@@ -323,11 +323,11 @@ def generate_practice_sentence(pt_key_phrase: str) -> str:
 
 
 _NEWS_FEEDS = [
-    ("BBC News",     "http://feeds.bbci.co.uk/news/rss.xml"),
-    ("BBC World",    "http://feeds.bbci.co.uk/news/world/rss.xml"),
+    # HTTPS-only, verified working feeds (Reuters removed public RSS in 2020)
     ("The Guardian", "https://www.theguardian.com/world/rss"),
     ("NPR News",     "https://feeds.npr.org/1001/rss.xml"),
-    ("Reuters",      "https://feeds.reuters.com/reuters/topNews"),
+    ("BBC News",     "https://feeds.bbci.co.uk/news/rss.xml"),
+    ("BBC World",    "https://feeds.bbci.co.uk/news/world/rss.xml"),
 ]
 
 
@@ -337,10 +337,14 @@ def _try_rss_feed(feed_url: str, feed_name: str, topic: str = ""):
     import random
     resp = requests.get(
         feed_url,
-        headers={"User-Agent": "PT-Practice-App/1.0 (language-learning)"},
-        timeout=8,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; PT-Practice-App/1.0)"},
+        timeout=5,
     )
     resp.raise_for_status()
+    # Reject HTML responses (some feeds return a landing page instead of XML)
+    ct = resp.headers.get("Content-Type", "")
+    if "html" in ct and "xml" not in ct:
+        return None
     root = ET.fromstring(resp.content)
     items = list(root.findall(".//item"))
     if not items:
@@ -374,10 +378,43 @@ def _try_rss_feed(feed_url: str, feed_name: str, topic: str = ""):
     return None
 
 
+def _wikipedia_paragraph(topic: str = "") -> tuple:
+    """Fetch a paragraph from Wikipedia. Retries random articles if stubs are hit."""
+    import urllib.parse
+    # Topic-specific lookup first
+    if topic.strip():
+        slug = urllib.parse.quote(topic.strip().replace(" ", "_"))
+        wr = requests.get(
+            f"https://en.wikipedia.org/api/rest_v1/page/summary/{slug}",
+            headers={"User-Agent": "PT-Practice-App/1.0"},
+            timeout=8,
+        )
+        if wr.status_code == 404:
+            raise ValueError(f'No Wikipedia article found for "{topic}" — try a different topic')
+        wr.raise_for_status()
+        extract = (wr.json().get("extract") or "").strip().split("\n")[0].strip()
+        if len(extract) >= 60:
+            sentences = re.split(r"(?<=[.!?])\s+", extract)
+            return " ".join(sentences[:5]), "Wikipedia"
+        # Article too short — fall through to random below
+    # Random articles — retry up to 5 times to skip stubs
+    for _ in range(5):
+        wr = requests.get(
+            "https://en.wikipedia.org/api/rest_v1/page/random/summary",
+            headers={"User-Agent": "PT-Practice-App/1.0"},
+            timeout=8,
+        )
+        wr.raise_for_status()
+        extract = (wr.json().get("extract") or "").strip().split("\n")[0].strip()
+        if len(extract) >= 60:
+            sentences = re.split(r"(?<=[.!?])\s+", extract)
+            return " ".join(sentences[:5]), "Wikipedia"
+    raise ValueError("Could not find a suitable article — please try again")
+
+
 def fetch_article_paragraph(topic: str = ""):
     """Fetch a paragraph from news RSS feeds; fall back to Wikipedia."""
     import random
-    import urllib.parse
     feeds = list(_NEWS_FEEDS)
     random.shuffle(feeds)
     for feed_name, feed_url in feeds:
@@ -387,21 +424,8 @@ def fetch_article_paragraph(topic: str = ""):
                 return result
         except Exception:
             continue
-    # Wikipedia fallback
-    if topic.strip():
-        slug = urllib.parse.quote(topic.strip().replace(" ", "_"))
-        wiki_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{slug}"
-    else:
-        wiki_url = "https://en.wikipedia.org/api/rest_v1/page/random/summary"
-    wr = requests.get(wiki_url, headers={"User-Agent": "PT-Practice-App/1.0"}, timeout=8)
-    if wr.status_code == 404:
-        raise ValueError(f'No article found for "{topic}" — try a different topic')
-    wr.raise_for_status()
-    extract = (wr.json().get("extract") or "").strip().split("\n")[0].strip()
-    if len(extract) < 60:
-        raise ValueError("Article too short — try fetching again")
-    sentences = re.split(r"(?<=[.!?])\s+", extract)
-    return " ".join(sentences[:5]), "Wikipedia"
+    # All RSS feeds failed — use Wikipedia (very reliable fallback)
+    return _wikipedia_paragraph(topic)
 
 
 def generate_practice_paragraph(topic: str = "", difficulty: str = "intermediate") -> str:
