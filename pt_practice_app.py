@@ -700,7 +700,6 @@ PAGE = """<!doctype html>
   <title>PT Practice</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     :root {
       --green-dark:  #14532d;
       --green:       #166534;
@@ -709,22 +708,21 @@ PAGE = """<!doctype html>
       --red-light:   #fee2e2;
       --red:         #dc2626;
       --amber-light: #fef9c3;
-      --amber:       #ca8a04;
+      --blue-light:  #eff6ff;
       --bg:          #f1f5f9;
       --surface:     #ffffff;
       --border:      #e2e8f0;
       --text:        #0f172a;
       --muted:       #64748b;
-      --radius:      14px;
-      --shadow:      0 1px 3px rgba(0,0,0,.07), 0 6px 20px rgba(0,0,0,.06);
+      --radius:      16px;
+      --shadow:      0 1px 3px rgba(0,0,0,.07), 0 6px 24px rgba(0,0,0,.07);
     }
-
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
-      padding-bottom: env(safe-area-inset-bottom);
+      padding-bottom: calc(68px + env(safe-area-inset-bottom));
     }
 
     /* ── Header ── */
@@ -738,42 +736,52 @@ PAGE = """<!doctype html>
       gap: 10px;
       position: sticky;
       top: 0;
-      z-index: 10;
+      z-index: 50;
     }
-    header h1 { color: white; font-size: 17px; font-weight: 700; }
-    .flag { font-size: 22px; }
+    header h1 { color: white; font-size: 18px; font-weight: 800; letter-spacing: -.3px; }
+    .flag { font-size: 24px; }
 
-    /* ── Tabs ── */
-    .tabs {
+    /* ── Bottom Navigation ── */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      height: calc(60px + env(safe-area-inset-bottom));
+      background: white;
+      border-top: 1px solid var(--border);
       display: flex;
-      background: var(--green-dark);
-      padding: 0 20px;
-      gap: 4px;
+      z-index: 100;
+      padding-bottom: env(safe-area-inset-bottom);
     }
-    .tab {
+    .nav-item {
       flex: 1;
-      padding: 12px 8px 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
       border: none;
       background: none;
-      color: rgba(255,255,255,.6);
-      font-family: inherit;
-      font-size: 14px;
-      font-weight: 600;
       cursor: pointer;
-      border-bottom: 2px solid transparent;
-      transition: color .15s, border-color .15s;
-      text-align: center;
+      color: #94a3b8;
+      font-size: 10px;
+      font-weight: 600;
+      text-decoration: none;
+      padding: 6px 4px;
+      font-family: inherit;
+      transition: color .15s;
+      -webkit-tap-highlight-color: transparent;
     }
-    .tab.active {
-      color: white;
-      border-bottom-color: #4ade80;
-    }
+    .nav-item .nav-icon { font-size: 22px; line-height: 1; }
+    .nav-item.active { color: var(--green); }
 
-    /* ── Content ── */
-    main { padding: 20px 16px 40px; max-width: 640px; margin: 0 auto; }
-
+    /* ── Main ── */
+    main { padding: 20px 16px; max-width: 640px; margin: 0 auto; }
     .panel { display: none; }
     .panel.active { display: block; }
+
+    /* Panel titles */
+    .panel-title { font-size: 24px; font-weight: 800; letter-spacing: -.5px; margin-bottom: 4px; }
+    .panel-sub { font-size: 14px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
 
     /* ── Card ── */
     .card {
@@ -783,7 +791,6 @@ PAGE = """<!doctype html>
       padding: 20px;
       margin-bottom: 16px;
     }
-
     label.field-label {
       display: block;
       font-size: 11px;
@@ -793,36 +800,37 @@ PAGE = """<!doctype html>
       color: var(--muted);
       margin-bottom: 8px;
     }
-
     textarea {
       width: 100%;
-      min-height: 80px;
-      padding: 12px 14px;
+      min-height: 88px;
+      padding: 14px;
       border: 1.5px solid var(--border);
-      border-radius: 10px;
+      border-radius: 12px;
       font-family: inherit;
       font-size: 16px;
       color: var(--text);
       background: #fafafa;
-      resize: vertical;
+      resize: none;
       outline: none;
-      line-height: 1.5;
-      transition: border-color .15s, box-shadow .15s;
+      line-height: 1.55;
+      transition: border-color .15s, box-shadow .15s, background .15s;
+      -webkit-appearance: none;
     }
     textarea:focus {
       background: white;
       border-color: var(--green-mid);
       box-shadow: 0 0 0 3px rgba(22,163,74,.12);
     }
-    textarea::placeholder { color: #94a3b8; }
+    textarea::placeholder { color: #b0bec5; }
 
+    /* ── Buttons ── */
     .btn {
       width: 100%;
-      height: 50px;
+      height: 52px;
       border: none;
-      border-radius: 10px;
+      border-radius: 13px;
       font-family: inherit;
-      font-size: 16px;
+      font-size: 17px;
       font-weight: 700;
       cursor: pointer;
       display: flex;
@@ -830,48 +838,28 @@ PAGE = """<!doctype html>
       justify-content: center;
       gap: 8px;
       transition: background .15s, transform .1s, opacity .15s;
-      margin-top: 12px;
+      margin-top: 14px;
+      -webkit-tap-highlight-color: transparent;
     }
     .btn-primary { background: var(--green); color: white; }
     .btn-primary:hover { background: var(--green-dark); }
     .btn-primary:active { transform: scale(.98); }
-    .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
 
-    /* ── Result cards ── */
-    .result { display: none; margin-top: 16px; }
+    /* ── Result section ── */
+    .result { display: none; margin-top: 0; }
     .result.show { display: block; }
-
     .result-card {
-      border-radius: var(--radius);
-      padding: 18px;
+      border-radius: 14px;
+      padding: 18px 20px;
       margin-bottom: 10px;
+      position: relative;
     }
-
-    .result-card.translation {
-      background: var(--green-light);
-      border: 1.5px solid #86efac;
-    }
-
-    .result-card.correct {
-      background: var(--green-light);
-      border: 1.5px solid #86efac;
-    }
-
-    .result-card.incorrect {
-      background: var(--red-light);
-      border: 1.5px solid #fca5a5;
-    }
-
-    .result-card.explanation {
-      background: var(--amber-light);
-      border: 1.5px solid #fde047;
-    }
-
-    .result-card.english {
-      background: #f0f9ff;
-      border: 1.5px solid #bae6fd;
-    }
-
+    .result-card.translation { background: var(--green-light); border: 1.5px solid #86efac; }
+    .result-card.correct     { background: var(--green-light); border: 1.5px solid #86efac; }
+    .result-card.incorrect   { background: var(--red-light);   border: 1.5px solid #fca5a5; }
+    .result-card.explanation { background: var(--amber-light); border: 1.5px solid #fde047; }
+    .result-card.english     { background: var(--blue-light);  border: 1.5px solid #bfdbfe; }
     .result-label {
       font-size: 10.5px;
       font-weight: 700;
@@ -880,41 +868,51 @@ PAGE = """<!doctype html>
       color: var(--muted);
       margin-bottom: 6px;
     }
+    .result-text { font-size: 19px; font-weight: 600; line-height: 1.45; color: var(--text); }
+    .result-text.muted { font-weight: 400; font-size: 16px; color: #374151; }
 
-    .result-text {
-      font-size: 18px;
+    /* Copy button */
+    .copy-btn {
+      position: absolute;
+      top: 14px; right: 14px;
+      background: rgba(0,0,0,.07);
+      border: none;
+      border-radius: 7px;
+      padding: 5px 10px;
+      font-size: 12px;
       font-weight: 600;
-      line-height: 1.45;
-      color: var(--text);
+      color: var(--muted);
+      cursor: pointer;
+      font-family: inherit;
+      transition: background .15s, color .15s;
+      -webkit-tap-highlight-color: transparent;
     }
-
-    .result-text.muted { font-weight: 400; font-size: 15px; color: #374151; }
+    .copy-btn:active { background: rgba(0,0,0,.14); }
+    .copy-btn.copied { background: var(--green-light); color: var(--green-dark); }
 
     .status-badge {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 4px 12px;
+      padding: 6px 14px;
       border-radius: 99px;
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 700;
-      margin-bottom: 12px;
+      margin-bottom: 14px;
     }
-    .status-badge.ok  { background: var(--green-light); color: var(--green); }
+    .status-badge.ok  { background: var(--green-light); color: var(--green-dark); }
     .status-badge.err { background: var(--red-light); color: var(--red); }
 
     /* ── Spinner ── */
     .spinner {
       display: none;
-      width: 20px;
-      height: 20px;
+      width: 22px; height: 22px;
       border: 2.5px solid rgba(255,255,255,.35);
       border-top-color: white;
       border-radius: 50%;
       animation: spin .6s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-
     .btn.loading .btn-label { display: none; }
     .btn.loading .spinner   { display: block; }
 
@@ -923,11 +921,12 @@ PAGE = """<!doctype html>
       display: none;
       background: var(--red-light);
       border: 1.5px solid #fca5a5;
-      border-radius: 10px;
-      padding: 12px 16px;
+      border-radius: 12px;
+      padding: 14px 16px;
       margin-top: 12px;
       font-size: 14px;
       color: var(--red);
+      line-height: 1.5;
     }
     .error-msg.show { display: block; }
 
@@ -948,19 +947,14 @@ PAGE = """<!doctype html>
 <header>
   <span class="flag">🇵🇹</span>
   <h1>PT Practice</h1>
-  <a href="/flashcards" style="margin-left:auto;color:rgba(255,255,255,.85);font-size:13px;font-weight:600;text-decoration:none;background:rgba(255,255,255,.15);padding:5px 12px;border-radius:99px;">📚 Flashcards</a>
 </header>
-
-<div class="tabs">
-  <button class="tab active" onclick="switchTab('translate', this)">Translate</button>
-  <button class="tab" onclick="switchTab('check', this)">Check My Portuguese</button>
-  <a href="/practice/" class="tab" style="text-decoration:none">Practice Test</a>
-</div>
 
 <main>
 
   <!-- ── Translate Panel ── -->
   <div id="panel-translate" class="panel active">
+    <p class="panel-title">Translate</p>
+    <p class="panel-sub">Type English and get European Portuguese.</p>
     <div class="card">
       <label class="field-label" for="translateInput">English text</label>
       <textarea id="translateInput" placeholder="e.g. I would like a coffee, please." rows="3"></textarea>
@@ -970,11 +964,11 @@ PAGE = """<!doctype html>
       </button>
       <div class="error-msg" id="translateError"></div>
     </div>
-
     <div class="result" id="translateResult">
       <div class="result-card translation">
         <div class="result-label">European Portuguese</div>
         <div class="result-text" id="translateOutput"></div>
+        <button class="copy-btn" onclick="copyText('translateOutput', this)">Copy</button>
       </div>
       <div class="result-card english">
         <div class="result-label">Your original</div>
@@ -982,13 +976,15 @@ PAGE = """<!doctype html>
       </div>
       <div class="logged-chip" id="translateLogged">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
-        Logged to Google Sheets
+        Logged
       </div>
     </div>
   </div>
 
   <!-- ── Check Panel ── -->
   <div id="panel-check" class="panel">
+    <p class="panel-title">Check My Portuguese</p>
+    <p class="panel-sub">Write a sentence and get instant feedback.</p>
     <div class="card">
       <label class="field-label" for="checkInput">Your Portuguese sentence</label>
       <textarea id="checkInput" placeholder="e.g. Eu gosto muito de viajar." rows="3"></textarea>
@@ -998,67 +994,82 @@ PAGE = """<!doctype html>
       </button>
       <div class="error-msg" id="checkError"></div>
     </div>
-
     <div class="result" id="checkResult">
       <div id="statusBadge" class="status-badge"></div>
-
       <div class="result-card" id="correctCard">
         <div class="result-label" id="correctLabel">Correct Portuguese</div>
         <div class="result-text" id="correctOutput"></div>
       </div>
-
       <div class="result-card explanation" id="explanationCard">
         <div class="result-label">What to fix</div>
         <div class="result-text muted" id="explanationOutput"></div>
       </div>
-
       <div class="result-card english" id="englishCard">
         <div class="result-label">English translation</div>
         <div class="result-text muted" id="englishOutput"></div>
       </div>
-
       <div class="logged-chip" id="checkLogged">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
-        Logged to Google Sheets
+        Logged
       </div>
     </div>
   </div>
 
 </main>
 
+<!-- ── Bottom Navigation ── -->
+<nav class="bottom-nav">
+  <button class="nav-item active" onclick="switchTab('translate', this)">
+    <span class="nav-icon">🔄</span>
+    <span>Translate</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('check', this)">
+    <span class="nav-icon">✓</span>
+    <span>Check</span>
+  </button>
+  <a href="/practice/" class="nav-item">
+    <span class="nav-icon">📝</span>
+    <span>Practice</span>
+  </a>
+  <a href="/flashcards" class="nav-item">
+    <span class="nav-icon">📚</span>
+    <span>Flashcards</span>
+  </a>
+</nav>
+
 <script>
-  // ── Tab switching ──────────────────────────────────────────────────────────
   function switchTab(name, el) {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
     el.classList.add('active');
     document.getElementById('panel-' + name).classList.add('active');
   }
 
-  // ── Translation ────────────────────────────────────────────────────────────
+  async function copyText(elId, btn) {
+    const text = document.getElementById(elId).textContent.trim();
+    await navigator.clipboard.writeText(text).catch(() => {});
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  }
+
   async function doTranslate() {
     const input = document.getElementById('translateInput').value.trim();
     if (!input) return;
-
     const btn = document.getElementById('translateBtn');
     const errEl = document.getElementById('translateError');
     const resultEl = document.getElementById('translateResult');
-
     setLoading(btn, true);
     errEl.classList.remove('show');
     resultEl.classList.remove('show');
     document.getElementById('translateLogged').classList.remove('show');
-
     try {
       const resp = await fetch('/api/translate', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({text: input}),
       });
       const data = await resp.json();
-
       if (data.error) throw new Error(data.error);
-
       document.getElementById('translateOutput').textContent = data.portuguese;
       document.getElementById('translateOriginal').textContent = data.english;
       resultEl.classList.add('show');
@@ -1071,47 +1082,35 @@ PAGE = """<!doctype html>
     }
   }
 
-  // ── Check ──────────────────────────────────────────────────────────────────
   async function doCheck() {
     const input = document.getElementById('checkInput').value.trim();
     if (!input) return;
-
     const btn = document.getElementById('checkBtn');
     const errEl = document.getElementById('checkError');
     const resultEl = document.getElementById('checkResult');
-
     setLoading(btn, true);
     errEl.classList.remove('show');
     resultEl.classList.remove('show');
     document.getElementById('checkLogged').classList.remove('show');
-
     try {
       const resp = await fetch('/api/check', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({text: input}),
       });
       const data = await resp.json();
-
       if (data.error) throw new Error(data.error);
-
-      // Status badge
       const badge = document.getElementById('statusBadge');
       if (data.is_correct) {
         badge.className = 'status-badge ok';
-        badge.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg> Correct!';
+        badge.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg> Correct!';
       } else {
         badge.className = 'status-badge err';
-        badge.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M18 6L6 18M6 6l12 12"/></svg> Needs correction';
+        badge.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M18 6L6 18M6 6l12 12"/></svg> Needs correction';
       }
-
-      // Correct version card
       const correctCard = document.getElementById('correctCard');
       document.getElementById('correctLabel').textContent = data.is_correct ? 'Your sentence' : 'Correct version';
       correctCard.className = 'result-card ' + (data.is_correct ? 'correct' : 'incorrect');
       document.getElementById('correctOutput').textContent = data.correct_portuguese;
-
-      // Explanation (only if incorrect)
       const expCard = document.getElementById('explanationCard');
       if (data.is_correct || !data.explanation) {
         expCard.style.display = 'none';
@@ -1119,10 +1118,7 @@ PAGE = """<!doctype html>
         expCard.style.display = 'block';
         document.getElementById('explanationOutput').textContent = data.explanation;
       }
-
-      // English translation
       document.getElementById('englishOutput').textContent = data.english_translation;
-
       resultEl.classList.add('show');
       document.getElementById('checkLogged').classList.add('show');
     } catch (e) {
@@ -1133,13 +1129,11 @@ PAGE = """<!doctype html>
     }
   }
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
   function setLoading(btn, on) {
     btn.disabled = on;
     btn.classList.toggle('loading', on);
   }
 
-  // Allow Enter (without Shift) to submit in textareas
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && e.target.tagName === 'TEXTAREA') {
       e.preventDefault();
@@ -1157,167 +1151,205 @@ FLASHCARDS_PAGE = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#166534">
   <title>PT Flashcards</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --green-dark: #14532d; --green: #166534; --green-mid: #16a34a;
-      --green-light: #dcfce7; --red-light: #fee2e2; --bg: #f1f5f9;
-      --surface: #fff; --border: #e2e8f0; --text: #0f172a; --muted: #64748b;
-      --shadow: 0 1px 3px rgba(0,0,0,.07), 0 6px 20px rgba(0,0,0,.06);
+      --green-light: #dcfce7; --red-light: #fee2e2; --amber-light: #fef9c3;
+      --bg: #f1f5f9; --surface: #fff; --border: #e2e8f0;
+      --text: #0f172a; --muted: #64748b;
+      --shadow: 0 1px 3px rgba(0,0,0,.07), 0 4px 16px rgba(0,0,0,.06);
     }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
-    header { background: var(--green); padding: 0 24px; display: flex; align-items: center; height: 56px; gap: 12px; }
-    header h1 { color: white; font-size: 17px; font-weight: 700; }
-    .back { color: rgba(255,255,255,.85); font-size: 13px; font-weight: 600; text-decoration: none; background: rgba(255,255,255,.15); padding: 5px 12px; border-radius: 99px; }
-    main { max-width: 900px; margin: 0 auto; padding: 28px 20px 60px; }
-    h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
-    .subtitle { font-size: 14px; color: var(--muted); margin-bottom: 24px; }
-    .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
-    .btn { height: 40px; padding: 0 20px; border: none; border-radius: 8px; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; transition: background .15s, opacity .15s; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding-bottom: 100px; }
+
+    /* ── Header ── */
+    header { background: var(--green); padding: 0 20px; padding-top: env(safe-area-inset-top); display: flex; align-items: center; height: calc(56px + env(safe-area-inset-top)); gap: 10px; position: sticky; top: 0; z-index: 50; }
+    header h1 { color: white; font-size: 18px; font-weight: 800; }
+    .back { color: rgba(255,255,255,.85); font-size: 13px; font-weight: 600; text-decoration: none; background: rgba(255,255,255,.15); padding: 5px 12px; border-radius: 99px; margin-left: auto; white-space: nowrap; }
+
+    /* ── Sticky toolbar ── */
+    .toolbar-wrap {
+      position: sticky;
+      top: calc(56px + env(safe-area-inset-top));
+      background: var(--bg);
+      z-index: 40;
+      padding: 12px 16px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .btn { height: 40px; padding: 0 18px; border: none; border-radius: 10px; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; transition: background .15s, opacity .15s; -webkit-tap-highlight-color: transparent; }
     .btn-primary { background: var(--green); color: white; }
     .btn-primary:hover { background: var(--green-dark); }
     .btn-primary:disabled { opacity: .4; cursor: not-allowed; }
     .btn-outline { background: white; color: var(--text); border: 1.5px solid var(--border); }
     .btn-outline:hover { background: var(--bg); }
-    .count-chip { background: var(--green-light); color: var(--green); font-size: 13px; font-weight: 700; padding: 4px 12px; border-radius: 99px; margin-left: auto; }
-    .card-wrap { background: var(--surface); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    thead { background: #f8fafc; border-bottom: 1.5px solid var(--border); }
-    th { padding: 10px 14px; text-align: left; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); white-space: nowrap; }
-    td { padding: 14px; border-bottom: 1px solid var(--border); vertical-align: top; line-height: 1.5; }
-    tr:last-child td { border-bottom: none; }
-    tr:hover td { background: #f8fafc; }
-    .cb { width: 17px; height: 17px; cursor: pointer; accent-color: var(--green); }
-    .pt-text { font-weight: 600; color: var(--green-dark); }
-    .wrong-text { color: var(--muted); font-size: 13px; }
-    .expl { font-size: 12.5px; color: var(--muted); margin-top: 4px; font-style: italic; }
-    .ts { font-size: 12px; color: var(--muted); }
-    .type-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; }
+    .count-chip { background: var(--green-light); color: var(--green-dark); font-size: 13px; font-weight: 700; padding: 5px 12px; border-radius: 99px; margin-left: auto; white-space: nowrap; }
+
+    /* ── Main ── */
+    main { padding: 16px; max-width: 700px; margin: 0 auto; }
+    .page-title { font-size: 20px; font-weight: 800; margin-bottom: 4px; }
+    .page-sub { font-size: 14px; color: var(--muted); margin-bottom: 16px; line-height: 1.5; }
+
+    /* ── Entry cards ── */
+    .entry-list { display: flex; flex-direction: column; gap: 10px; }
+    .entry-card {
+      background: white;
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      display: flex;
+      align-items: stretch;
+      border: 1.5px solid transparent;
+      transition: border-color .15s, background .15s;
+      overflow: hidden;
+    }
+    .entry-card:has(.cb:checked) { border-color: var(--green-mid); background: #f0fdf4; }
+
+    .entry-select {
+      display: flex;
+      align-items: center;
+      padding: 0 4px 0 14px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .cb { width: 20px; height: 20px; cursor: pointer; accent-color: var(--green); flex-shrink: 0; }
+
+    .entry-body { flex: 1; padding: 14px 12px; min-width: 0; }
+    .entry-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+    .entry-date { font-size: 11px; color: var(--muted); margin-left: auto; }
+
+    .entry-pt { font-size: 19px; font-weight: 700; color: var(--green-dark); line-height: 1.3; margin-bottom: 4px; }
+    .entry-en { font-size: 14px; color: var(--text); margin-bottom: 6px; line-height: 1.4; }
+    .entry-wrong { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .entry-wrong em { font-style: normal; color: #dc2626; }
+    .entry-expl { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.4; border-top: 1px solid var(--border); padding-top: 4px; margin-top: 6px; }
+
+    .type-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 99px; }
     .type-badge.translation { background: #dbeafe; color: #1d4ed8; }
     .type-badge.correction  { background: var(--red-light); color: #dc2626; }
-    .type-badge.practice    { background: #fef9c3; color: #92400e; }
-    .delete-btn { background: none; border: none; cursor: pointer; color: var(--muted); padding: 5px 7px; border-radius: 6px; line-height: 1; transition: color .15s, background .15s; }
-    .delete-btn:hover { color: #dc2626; background: var(--red-light); }
-    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
+    .type-badge.practice    { background: var(--amber-light); color: #92400e; }
+
+    .delete-btn { background: none; border: none; cursor: pointer; color: var(--muted); padding: 6px 14px 6px 6px; line-height: 1; transition: color .15s; flex-shrink: 0; align-self: flex-start; margin-top: 10px; -webkit-tap-highlight-color: transparent; }
+    .delete-btn:hover { color: #dc2626; }
+
+    /* ── Empty state ── */
+    .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+    .empty-icon { font-size: 44px; margin-bottom: 14px; display: block; }
+    .empty p { font-size: 15px; line-height: 1.6; }
+
+    /* ── Error banner ── */
+    .error-banner { background: var(--red-light); border: 1.5px solid #fca5a5; border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; font-size: 14px; color: #dc2626; }
+
+    /* ── Modal ── */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; align-items: flex-end; justify-content: center; padding: 0; }
     .modal-overlay.show { display: flex; }
-    .modal { background: white; border-radius: 16px; padding: 28px 24px; max-width: 360px; width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
-    .modal h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+    .modal { background: white; border-radius: 20px 20px 0 0; padding: 28px 24px calc(28px + env(safe-area-inset-bottom)); width: 100%; max-width: 480px; box-shadow: 0 -8px 40px rgba(0,0,0,.15); }
+    .modal h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
     .modal p { font-size: 14px; color: var(--muted); margin-bottom: 22px; line-height: 1.6; }
     .modal-actions { display: flex; gap: 10px; }
-    .btn-danger { background: #dc2626; color: white; }
+    .btn-danger { background: #dc2626; color: white; flex: 1; }
     .btn-danger:hover { background: #b91c1c; }
-    .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
-    .empty-icon { font-size: 40px; margin-bottom: 12px; display: block; }
-    .spinner { display: inline-block; width: 16px; height: 16px; border: 2.5px solid rgba(255,255,255,.35); border-top-color: white; border-radius: 50%; animation: spin .6s linear infinite; }
+
+    /* ── Toast ── */
+    .spinner { display: inline-block; width: 15px; height: 15px; border: 2px solid rgba(255,255,255,.35); border-top-color: white; border-radius: 50%; animation: spin .6s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .toast { display: none; position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); padding: 14px 22px; border-radius: 12px; font-size: 14px; font-weight: 600; box-shadow: 0 8px 30px rgba(0,0,0,.18); z-index: 99; white-space: nowrap; }
+    .toast { display: none; position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); padding: 14px 22px; border-radius: 12px; font-size: 14px; font-weight: 600; box-shadow: 0 8px 30px rgba(0,0,0,.2); z-index: 200; white-space: nowrap; }
     .toast.success { background: var(--green); color: white; }
     .toast.error   { background: #dc2626; color: white; }
     .toast.show { display: block; animation: slideUp .25s ease; }
     @keyframes slideUp { from { transform: translateX(-50%) translateY(12px); opacity: 0; } to { transform: translateX(-50%) translateY(0); opacity: 1; } }
-    .error-banner { background: var(--red-light); border: 1.5px solid #fca5a5; border-radius: 10px; padding: 14px 16px; margin-bottom: 20px; font-size: 14px; color: #dc2626; }
   </style>
 </head>
 <body>
+
 <header>
-  <span style="font-size:20px">🇵🇹</span>
-  <h1>Mistake Flashcards</h1>
-  <a href="/" class="back" style="margin-left:auto">← Back to Practice</a>
+  <span style="font-size:22px">🇵🇹</span>
+  <h1>Flashcards</h1>
+  <a href="/" class="back">← Back</a>
 </header>
 
-<main>
-  <h2>Your mistakes</h2>
-  <p class="subtitle">Select the sentences you want to drill, then generate Anki flashcards with audio.</p>
-
-  {% if error %}
-  <div class="error-banner">⚠️ Could not load mistakes: {{ error }}</div>
-  {% endif %}
-
-  {% if mistakes %}
+{% if mistakes %}
+<div class="toolbar-wrap">
   <div class="toolbar">
     <button class="btn btn-outline" onclick="selectAll()">Select all</button>
-    <button class="btn btn-outline" onclick="selectNone()">Deselect all</button>
+    <button class="btn btn-outline" onclick="selectNone()">None</button>
     <span class="count-chip" id="countChip">0 selected</span>
     <button class="btn btn-primary" id="generateBtn" onclick="generate()" disabled>
-      <span class="btn-label">Generate &amp; Email Flashcards</span>
+      <span class="btn-label">Generate &amp; Email</span>
       <span class="spinner" style="display:none"></span>
     </button>
   </div>
+</div>
+{% endif %}
 
-  <div class="card-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th style="width:36px"></th>
-          <th style="width:90px">Type</th>
-          <th>Portuguese</th>
-          <th>English</th>
-          <th>You wrote</th>
-          <th>Date</th>
-          <th style="width:36px"></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for m in mistakes %}
-        <tr>
-          <td><input type="checkbox" class="cb" onchange="updateCount()"
-            data-id="{{ m.id }}"
-            data-english="{{ m.english }}"
-            data-portuguese="{{ m.portuguese }}"
-            data-original="{{ m.original }}"
-          ></td>
-          <td>
-            {% if m.type == 'Translation' %}
-              <span class="type-badge translation">Translate</span>
-            {% elif m.type == 'Practice' %}
-              <span class="type-badge practice">Practice</span>
-            {% else %}
-              <span class="type-badge correction">Mistake</span>
-            {% endif %}
-          </td>
-          <td class="pt-text">{{ m.portuguese }}</td>
-          <td>{{ m.english }}</td>
-          <td>
-            {% if m.original %}
-              <span class="wrong-text">{{ m.original }}</span>
-              {% if m.explanation %}<div class="expl">{{ m.explanation }}</div>{% endif %}
-            {% else %}
-              <span class="ts">—</span>
-            {% endif %}
-          </td>
-          <td class="ts">{{ m.timestamp[:10] if m.timestamp else '' }}</td>
-          <td><button class="delete-btn" onclick="deleteEntry('{{ m.id }}', this)" title="Delete">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-          </button></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<main>
+  <p class="page-title">Your mistakes</p>
+  <p class="page-sub">Select entries to generate Anki flashcards with audio, emailed to you.</p>
+
+  {% if error %}
+  <div class="error-banner">⚠️ Could not load entries: {{ error }}</div>
+  {% endif %}
+
+  {% if mistakes %}
+  <div class="entry-list">
+    {% for m in mistakes %}
+    <div class="entry-card" id="entry-{{ m.id }}">
+      <label class="entry-select" title="Select">
+        <input type="checkbox" class="cb" onchange="updateCount()"
+          data-id="{{ m.id }}"
+          data-english="{{ m.english }}"
+          data-portuguese="{{ m.portuguese }}"
+          data-original="{{ m.original }}"
+        >
+      </label>
+      <div class="entry-body">
+        <div class="entry-meta">
+          {% if m.type == 'Translation' %}
+            <span class="type-badge translation">Translate</span>
+          {% elif m.type == 'Practice' %}
+            <span class="type-badge practice">Practice</span>
+          {% else %}
+            <span class="type-badge correction">Mistake</span>
+          {% endif %}
+          <span class="entry-date">{{ m.timestamp[:10] if m.timestamp else '' }}</span>
+        </div>
+        <div class="entry-pt">{{ m.portuguese }}</div>
+        <div class="entry-en">{{ m.english }}</div>
+        {% if m.original %}
+        <div class="entry-wrong">You wrote: <em>{{ m.original }}</em></div>
+        {% endif %}
+        {% if m.explanation %}
+        <div class="entry-expl">{{ m.explanation }}</div>
+        {% endif %}
+      </div>
+      <button class="delete-btn" onclick="deleteEntry('{{ m.id }}', this)" title="Delete">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+      </button>
+    </div>
+    {% endfor %}
   </div>
 
   {% else %}
-  <div class="card-wrap">
-    <div class="empty">
-      <span class="empty-icon">🎉</span>
-      <p>No mistakes logged yet.<br>Use the Check tab to practise and your errors will appear here.</p>
-    </div>
+  <div class="empty">
+    <span class="empty-icon">🎉</span>
+    <p>No mistakes logged yet.<br>Use the Check tab or Practice Test to add entries.</p>
   </div>
   {% endif %}
 </main>
 
 <div class="toast" id="toast"></div>
 
-<!-- Delete confirmation modal -->
+<!-- Delete confirmation sheet -->
 <div class="modal-overlay" id="deleteModal">
   <div class="modal">
     <h3>Delete from log?</h3>
-    <p>Remove these <strong id="deleteCount">0</strong> entries from your practice log?<br>
-    <small style="color:#16a34a">✓ They'll stay in Google Sheets.</small></p>
+    <p>Remove <strong id="deleteCount">0</strong> entries from your practice log?
+    <br><small style="color:#16a34a">✓ They'll stay in Google Sheets.</small></p>
     <div class="modal-actions">
-      <button class="btn btn-danger" style="flex:1" onclick="confirmDelete()">Yes, delete</button>
+      <button class="btn btn-danger" onclick="confirmDelete()">Yes, delete</button>
       <button class="btn btn-outline" style="flex:1" onclick="cancelDelete()">Keep them</button>
     </div>
   </div>
@@ -1336,17 +1368,17 @@ FLASHCARDS_PAGE = """<!doctype html>
   function selectNone() { document.querySelectorAll('.cb').forEach(c => c.checked = false); updateCount(); }
 
   async function deleteEntry(id, btn) {
-    const row = btn.closest('tr');
-    row.style.opacity = '0.4';
+    const card = btn.closest('.entry-card');
+    card.style.opacity = '0.4';
     try {
       const resp = await fetch('/api/log/' + id, { method: 'DELETE' });
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
-      row.remove();
+      card.remove();
       updateCount();
       showToast('Entry deleted', 'success');
     } catch (e) {
-      row.style.opacity = '1';
+      card.style.opacity = '1';
       showToast(e.message || 'Delete failed', 'error');
     }
   }
@@ -1354,30 +1386,23 @@ FLASHCARDS_PAGE = """<!doctype html>
   async function generate() {
     const checked = [...document.querySelectorAll('.cb:checked')];
     if (!checked.length) return;
-
     const cards = checked.map(c => ({
-      english:    c.dataset.english,
-      portuguese: c.dataset.portuguese,
-      original:   c.dataset.original,
+      english: c.dataset.english, portuguese: c.dataset.portuguese, original: c.dataset.original,
     }));
-
-    const btn     = document.getElementById('generateBtn');
-    const label   = btn.querySelector('.btn-label');
+    const btn = document.getElementById('generateBtn');
+    const label = btn.querySelector('.btn-label');
     const spinner = btn.querySelector('.spinner');
-    btn.disabled   = true;
-    label.style.display  = 'none';
+    btn.disabled = true;
+    label.style.display = 'none';
     spinner.style.display = 'inline-block';
-
     try {
       const resp = await fetch('/api/generate-flashcards', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({cards}),
       });
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
       showToast(data.message, 'success');
-      // Ask if they want to delete the sent entries
       pendingDeleteIds = checked.map(c => c.dataset.id).filter(Boolean);
       document.getElementById('deleteCount').textContent = pendingDeleteIds.length;
       setTimeout(() => document.getElementById('deleteModal').classList.add('show'), 600);
@@ -1385,7 +1410,7 @@ FLASHCARDS_PAGE = """<!doctype html>
       showToast(e.message || 'Something went wrong', 'error');
     } finally {
       btn.disabled = false;
-      label.style.display  = 'inline';
+      label.style.display = '';
       spinner.style.display = 'none';
       updateCount();
     }
@@ -1395,12 +1420,12 @@ FLASHCARDS_PAGE = """<!doctype html>
     document.getElementById('deleteModal').classList.remove('show');
     for (const id of pendingDeleteIds) {
       try { await fetch('/api/log/' + id, { method: 'DELETE' }); } catch (_) {}
-      const cb = document.querySelector('.cb[data-id="' + id + '"]');
-      if (cb) cb.closest('tr').remove();
+      const card = document.getElementById('entry-' + id);
+      if (card) card.remove();
     }
     pendingDeleteIds = [];
     updateCount();
-    showToast('Entries deleted from log', 'success');
+    showToast('Entries deleted', 'success');
   }
 
   function cancelDelete() {
@@ -1486,7 +1511,8 @@ _PRACTICE_CSS = """
     .sbadge { display:inline-block; font-size:11px; font-weight:700; padding:2px 9px; border-radius:99px; text-transform:uppercase; margin-bottom:6px; }
     .sbadge.partial { background:#fde68a; color:#78350f; }
     .sbadge.wrong   { background:#fecaca; color:#7f1d1d; }
-    .mistake-card { background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow); padding:16px 18px; margin-bottom:10px; }
+    .mistake-card { background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow); padding:16px 18px; margin-bottom:10px; border:1.5px solid transparent; transition:border-color .15s,background .15s; }
+    .mistake-card:has(.fc-cb:checked) { border-color:var(--green-mid); background:#f0fdf4; }
     .mc-phrase { font-size:16px; font-weight:700; margin-bottom:2px; }
     .mc-gloss { font-size:12px; color:var(--muted); font-weight:400; margin-left:5px; }
     .mc-feedback { font-size:13px; color:#374151; line-height:1.5; margin-bottom:10px; }
@@ -1501,7 +1527,8 @@ _PRACTICE_CSS = """
     @keyframes spin { to { transform:rotate(360deg); } }
     .btn.loading .btn-label { display:none; }
     .btn.loading .spinner { display:block; }
-    .toolbar { display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+    .toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .toolbar-wrap { position:sticky; top:calc(56px + env(safe-area-inset-top)); background:var(--bg); z-index:40; padding:10px 16px; border-bottom:1px solid var(--border); margin:0 -16px 16px; }
     .count-chip { background:var(--green-light); color:var(--green); font-size:13px; font-weight:700; padding:4px 12px; border-radius:99px; }
     .toast { display:none; position:fixed; bottom:28px; left:50%; transform:translateX(-50%); padding:14px 22px; border-radius:12px; font-size:14px; font-weight:600; box-shadow:0 8px 30px rgba(0,0,0,.18); z-index:99; white-space:nowrap; }
     .toast.show { display:block; animation:slideUp .25s ease; }
@@ -1868,16 +1895,18 @@ PRACTICE_SUMMARY_PAGE = """<!doctype html>
 
   {% if n_partial > 0 or n_wrong > 0 %}
   <div class="flash-note">
-    Tick the mistakes you want to save as flashcards, then click <strong>Add to Flashcards</strong>.
+    Tick the mistakes you want to save as flashcards, then tap <strong>Add to Flashcards</strong>.
   </div>
-  <div class="toolbar">
-    <button class="btn btn-outline btn-sm" onclick="selectAll()">Select all</button>
-    <button class="btn btn-outline btn-sm" onclick="selectNone()">Deselect all</button>
-    <span class="count-chip" id="countChip" style="margin-left:auto">0 selected</span>
-    <button class="btn btn-primary btn-sm" id="addBtn" onclick="addToFlashcards()" disabled>
-      <span class="btn-label">Add to Flashcards</span>
-      <span class="spinner" style="display:none"></span>
-    </button>
+  <div class="toolbar-wrap">
+    <div class="toolbar">
+      <button class="btn btn-outline btn-sm" onclick="selectAll()">Select all</button>
+      <button class="btn btn-outline btn-sm" onclick="selectNone()">Deselect all</button>
+      <span class="count-chip" id="countChip" style="margin-left:auto">0 selected</span>
+      <button class="btn btn-primary btn-sm" id="addBtn" onclick="addToFlashcards()" disabled>
+        <span class="btn-label">Add to Flashcards</span>
+        <span class="spinner" style="display:none"></span>
+      </button>
+    </div>
   </div>
   {% endif %}
 
