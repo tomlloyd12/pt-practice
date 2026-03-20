@@ -547,7 +547,9 @@ def practice_get_paragraph():
             text, src_name = generate_practice_paragraph(topic, difficulty), None
         return jsonify({"text": text, "source": src_name})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        import traceback
+        traceback.print_exc()   # visible in Render logs
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
 
 
 @app.route("/practice/add-to-flashcards", methods=["POST"])
