@@ -30,6 +30,7 @@ from functools import wraps
 import anthropic
 import gspread
 import psycopg2
+import requests
 import resend
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
