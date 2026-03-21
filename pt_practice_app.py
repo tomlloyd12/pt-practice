@@ -504,6 +504,48 @@ def practice_grade():
     return jsonify(result)
 
 
+@app.route("/practice/ask", methods=["POST"])
+@require_password
+def practice_ask():
+    """Answer a follow-up question about a graded translation."""
+    data = request.get_json(force=True) or {}
+    question = (data.get("question") or "").strip()
+    if not question:
+        return jsonify({"error": "No question provided"}), 400
+    # Build context from the grading result
+    english = data.get("english", "")
+    user_pt = data.get("user_translation", "")
+    correct_pt = data.get("correct_translation", "")
+    score = data.get("score", "")
+    feedback = data.get("feedback", "")
+    mistakes = data.get("mistakes", [])
+    mistakes_text = ""
+    for m in mistakes:
+        mistakes_text += f"\n- {m.get('pt_key_phrase','')}: {m.get('feedback','')}"
+    prompt = (
+        "You are a European Portuguese language tutor. "
+        "A student just translated a sentence and received feedback. "
+        "Now they have a follow-up question. Answer it clearly and concisely.\n\n"
+        f"English sentence: \"{english}\"\n"
+        f"Student wrote: \"{user_pt}\"\n"
+        f"Correct translation: \"{correct_pt}\"\n"
+        f"Score: {score}\n"
+        f"Feedback: {feedback}\n"
+    )
+    if mistakes_text:
+        prompt += f"Specific mistakes:{mistakes_text}\n"
+    prompt += f"\nStudent's question: \"{question}\"\n\nAnswer briefly (2-4 sentences). Use European Portuguese examples."
+    try:
+        resp = claude_client().messages.create(
+            model=CLAUDE_MODEL, max_tokens=300,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        answer = resp.content[0].text.strip()
+        return jsonify({"answer": answer})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/practice/advance", methods=["POST"])
 @require_password
 def practice_advance():
@@ -1524,6 +1566,13 @@ _PRACTICE_CSS = """
     .mistake-item { background:rgba(0,0,0,.04); border-radius:6px; padding:8px 10px; margin-bottom:6px; font-size:13px; line-height:1.5; }
     .mistake-item strong { font-size:14px; }
     .mistake-gloss { color:var(--muted); font-size:12px; }
+    /* Ask about correction */
+    .ask-section { margin-top:14px; padding-top:14px; border-top:1px solid rgba(0,0,0,.08); }
+    .ask-input { flex:1; height:36px; padding:0 12px; border:1.5px solid var(--border); border-radius:8px; font-family:inherit; font-size:14px; outline:none; background:#fafafa; color:var(--text); }
+    .ask-input:focus { border-color:var(--green-mid); background:white; box-shadow:0 0 0 3px rgba(22,163,74,.12); }
+    .ask-bubble { border-radius:10px; padding:10px 14px; margin-bottom:8px; font-size:14px; line-height:1.55; }
+    .ask-q { background:var(--green-light); color:var(--green-dark); }
+    .ask-a { background:rgba(0,0,0,.04); color:var(--text); }
     .row-actions { display:flex; gap:10px; margin-top:12px; align-items:center; }
     /* Summary */
     .stats-row { display:flex; gap:10px; margin-bottom:20px; }
@@ -1617,6 +1666,7 @@ PRACTICE_START_PAGE = """<!doctype html>
 
     <!-- AI panel -->
     <div id="panel-ai" class="src-panel">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">Generates a random conversational scenario each time.</p>
       <div class="field-label" style="margin-bottom:8px;">Difficulty</div>
       <div class="diff-row">
         <button type="button" class="diff-btn" onclick="setDiff('beginner')">🌱 Beginner</button>
@@ -1624,7 +1674,7 @@ PRACTICE_START_PAGE = """<!doctype html>
         <button type="button" class="diff-btn" onclick="setDiff('advanced')">🌳 Advanced</button>
       </div>
       <button type="button" class="btn btn-outline btn-block" id="generateBtn" onclick="getParagraph('ai')">
-        <span class="btn-label">Generate paragraph →</span>
+        <span class="btn-label">Generate scenario →</span>
         <span class="spinner" style="display:none;border-color:rgba(0,0,0,.2);border-top-color:var(--green);"></span>
       </button>
     </div>
@@ -1786,6 +1836,16 @@ PRACTICE_SENTENCE_PAGE = """<!doctype html>
           <div class="val" id="correctText"></div>
         </div>
       </div>
+      <div class="ask-section" id="askSection" style="display:none;">
+        <div class="ask-thread" id="askThread"></div>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <input type="text" id="askInput" class="ask-input" placeholder="Ask about this correction…">
+          <button class="btn btn-primary btn-sm" id="askBtn" onclick="askQuestion()" style="flex-shrink:0;">
+            <span class="btn-label">Ask</span>
+            <span class="spinner" style="display:none"></span>
+          </button>
+        </div>
+      </div>
     </div>
 
     <div id="nextRow" style="display:none; margin-top:14px;">
@@ -1838,6 +1898,9 @@ PRACTICE_SENTENCE_PAGE = """<!doctype html>
     badge.textContent    = r.score === 'correct' ? '✓ Correct' : r.score === 'partial' ? '~ Partial' : '✗ Wrong';
     document.getElementById('feedbackText').textContent = r.feedback || '';
 
+    document.getElementById('askSection').style.display = r.score === 'correct' ? 'none' : 'block';
+    document.getElementById('askThread').innerHTML = '';
+
     if (r.score === 'correct') {
       cb.style.display = 'none';
       ml.style.display = 'none';
@@ -1858,6 +1921,42 @@ PRACTICE_SENTENCE_PAGE = """<!doctype html>
       } else {
         ml.style.display = 'none';
       }
+    }
+  }
+
+  async function askQuestion() {
+    const input = document.getElementById('askInput');
+    const question = input.value.trim();
+    if (!question || !gradeResult) return;
+    const btn = document.getElementById('askBtn');
+    setLoading(btn, true);
+    input.disabled = true;
+    // Show the question bubble immediately
+    const thread = document.getElementById('askThread');
+    thread.innerHTML += `<div class="ask-bubble ask-q">${question}</div>`;
+    input.value = '';
+    try {
+      const resp = await fetch('/practice/ask', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          question,
+          english: gradeResult.english,
+          user_translation: gradeResult.user_translation,
+          correct_translation: gradeResult.correct_translation,
+          score: gradeResult.score,
+          feedback: gradeResult.feedback,
+          mistakes: gradeResult.mistakes || [],
+        }),
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      thread.innerHTML += `<div class="ask-bubble ask-a">${data.answer}</div>`;
+    } catch(e) {
+      thread.innerHTML += `<div class="ask-bubble ask-a" style="color:#dc2626;">Could not get answer. Try again.</div>`;
+    } finally {
+      setLoading(btn, false);
+      input.disabled = false;
+      input.focus();
     }
   }
 
@@ -1891,6 +1990,9 @@ PRACTICE_SENTENCE_PAGE = """<!doctype html>
 
   document.getElementById('translationInput').addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') checkTranslation();
+  });
+  document.getElementById('askInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') askQuestion();
   });
 </script>
 </body></html>
