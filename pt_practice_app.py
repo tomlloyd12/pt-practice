@@ -430,21 +430,23 @@ def fetch_article_paragraph(topic: str = ""):
 
 
 def generate_practice_paragraph(topic: str = "", difficulty: str = "intermediate") -> str:
-    """Use Claude to generate an English paragraph for translation practice."""
+    """Use Claude to generate a conversational English snippet for translation practice."""
     diff_map = {
         "beginner":     "short, simple sentences with common everyday vocabulary (A2 level)",
-        "intermediate": "natural flowing prose with some idiomatic expressions (B1-B2 level)",
-        "advanced":     "sophisticated language with complex sentence structures (C1 level)",
+        "intermediate": "natural conversational language with some idiomatic expressions (B1-B2 level)",
+        "advanced":     "sophisticated language with complex sentence structures, slang, and nuance (C1 level)",
     }
     diff_desc = diff_map.get(difficulty, diff_map["intermediate"])
-    topic_clause = (
-        f" about {topic.strip()}" if topic.strip()
-        else " on an everyday topic (travel, food, weather, city life, or nature)"
-    )
     prompt = (
-        f"Write a natural English paragraph{topic_clause} for Portuguese translation practice. "
-        f"4-5 sentences. Use {diff_desc}. Write natural flowing prose, not a list. "
-        "Return only the paragraph, nothing else."
+        "Write a short, natural conversational English passage (4-5 sentences) for Portuguese translation practice. "
+        "Pick a RANDOM everyday scenario — e.g. ordering at a cafe, asking for directions, "
+        "chatting with a friend about weekend plans, a phone call to book an appointment, "
+        "small talk with a neighbour, haggling at a market, catching up after a trip, "
+        "texting about dinner plans, complaining about the weather, etc. "
+        "Pick a different scenario every time — be creative and varied. "
+        f"Use {diff_desc}. "
+        "Write it as natural dialogue or narration that someone might actually say or hear in real life. "
+        "Return only the passage, nothing else."
     )
     resp = claude_client().messages.create(
         model=CLAUDE_MODEL,
@@ -1615,8 +1617,6 @@ PRACTICE_START_PAGE = """<!doctype html>
 
     <!-- AI panel -->
     <div id="panel-ai" class="src-panel">
-      <label class="field-label" for="ai-topic">Topic (optional)</label>
-      <input type="text" id="ai-topic" class="topic-input" placeholder="e.g. travel, food, technology…">
       <div class="field-label" style="margin-bottom:8px;">Difficulty</div>
       <div class="diff-row">
         <button type="button" class="diff-btn" onclick="setDiff('beginner')">🌱 Beginner</button>
@@ -1705,7 +1705,7 @@ PRACTICE_START_PAGE = """<!doctype html>
   async function getParagraph(source) {
     const btnId = source === 'article' ? 'fetchBtn' : 'generateBtn';
     const btn = document.getElementById(btnId);
-    const topic = document.getElementById(source === 'article' ? 'article-topic' : 'ai-topic').value.trim();
+    const topic = source === 'article' ? document.getElementById('article-topic').value.trim() : '';
     const params = new URLSearchParams({ source, topic, difficulty: currentDiff });
     btn.querySelector('.btn-label').style.display = 'none';
     btn.querySelector('.spinner').style.display = 'inline-block';
