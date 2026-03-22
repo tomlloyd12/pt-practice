@@ -827,6 +827,65 @@ def api_suggest_flashcards():
         return jsonify({"error": "Something went wrong — please try again."}), 500
 
 
+@app.route("/api/parse-notes", methods=["POST"])
+@require_password
+def api_parse_notes():
+    """Parse lesson notes and generate flashcard suggestions with example sentences."""
+    data = request.get_json(force=True) or {}
+    notes = (data.get("notes") or "").strip()
+    if not notes:
+        return jsonify({"error": "Please paste your lesson notes."}), 400
+    prompt = (
+        "You are a European Portuguese language tutor. A student has shared their lesson notes below.\n\n"
+        "NOTES:\n" + notes + "\n\n"
+        "Parse these notes and create flashcard suggestions. The notes may contain:\n"
+        "- Vocabulary words (sometimes with translations, sometimes without)\n"
+        "- Sentences or phrases (corrections, examples from class)\n"
+        "- Grammar patterns or expressions\n"
+        "- Bullet points, asterisks, dashes, or free-form text\n\n"
+        "For EACH distinct item in the notes, create a flashcard object.\n"
+        "Return a JSON array of objects. Each object has:\n"
+        "- \"portuguese\": the Portuguese word, phrase, or key expression\n"
+        "- \"english\": the English translation or meaning\n"
+        "- \"notes\": brief usage note, grammar context, or explanation (1 sentence, or empty string)\n"
+        "- \"example_sentence\": a short, natural European Portuguese example sentence using the word/phrase (max 12 words)\n\n"
+        "Rules:\n"
+        "- Use European Portuguese (not Brazilian)\n"
+        "- For nouns, include the article (o/a)\n"
+        "- If the notes already contain example sentences, you can adapt them for the example_sentence\n"
+        "- If a note line IS a full sentence (like a correction from class), the portuguese field should be the key phrase/word being taught, and the example_sentence can be the full sentence or a variation\n"
+        "- Create one card per distinct concept — don't merge unrelated items\n"
+        "- Return ONLY the JSON array, nothing else"
+    )
+    try:
+        raw = _call_claude(1200, prompt)
+        cards = _parse_json_response(raw)
+        if not isinstance(cards, list):
+            cards = [cards]
+        return jsonify({"cards": cards})
+    except _UserError as exc:
+        return jsonify({"error": str(exc)}), 500
+    except Exception:
+        return jsonify({"error": "Something went wrong — please try again."}), 500
+
+
+@app.route("/api/regen-sentence", methods=["POST"])
+@require_password
+def api_regen_sentence():
+    """Regenerate the example sentence for a flashcard."""
+    data = request.get_json(force=True) or {}
+    portuguese = (data.get("portuguese") or "").strip()
+    if not portuguese:
+        return jsonify({"error": "No phrase provided."}), 400
+    try:
+        sentence = generate_practice_sentence(portuguese)
+        return jsonify({"sentence": sentence})
+    except _UserError as exc:
+        return jsonify({"error": str(exc)}), 500
+    except Exception:
+        return jsonify({"error": "Could not generate sentence — please try again."}), 500
+
+
 @app.route("/api/save-flashcards", methods=["POST"])
 @require_password
 def api_save_flashcards():
@@ -1138,6 +1197,30 @@ PAGE = """<!doctype html>
       padding: 3px 10px;
       border-radius: 99px;
     }
+    .gen-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+    .gen-tab {
+      flex: 1; text-align: center; padding: 9px 6px; border-radius: 10px;
+      border: 1.5px solid var(--border); font-size: 13px; font-weight: 600;
+      cursor: pointer; background: white; color: var(--muted); transition: all .15s;
+      font-family: inherit;
+    }
+    .gen-tab.active { background: var(--green); color: white; border-color: var(--green); }
+    .gen-mode { display: none; }
+    .gen-mode.active { display: block; }
+    .gc-example {
+      background: #f0fdf4; border-left: 3px solid var(--green-mid);
+      border-radius: 0 6px 6px 0; padding: 8px 12px; margin-top: 8px;
+      font-size: 14px; color: var(--green-dark); font-weight: 500;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .gc-example .gc-sent { flex: 1; }
+    .gc-regen {
+      background: none; border: 1.5px solid var(--border); border-radius: 6px;
+      font-size: 11px; padding: 3px 8px; cursor: pointer; color: var(--muted);
+      font-family: inherit; font-weight: 500; flex-shrink: 0; transition: all .15s;
+    }
+    .gc-regen:hover { border-color: var(--green-mid); color: var(--green); }
+    .gc-regen:disabled { opacity: .5; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -1182,16 +1265,41 @@ PAGE = """<!doctype html>
   <!-- ── Generate Flashcards Panel ── -->
   <div id="panel-generate" class="panel">
     <p class="panel-title">Generate</p>
-    <p class="panel-sub">Create flashcards from a word, phrase, or concept.</p>
-    <div class="card">
-      <label class="field-label" for="genInput">What do you want to learn?</label>
-      <textarea id="genInput" placeholder="e.g. saudade, to run, how to express speculative desire in Portuguese…" rows="2"></textarea>
-      <button class="btn btn-primary" id="genBtn" onclick="doGenerate()">
-        <span class="btn-label">Generate flashcards</span>
-        <div class="spinner"></div>
-      </button>
-      <div class="error-msg" id="genError"></div>
+    <p class="panel-sub">Create flashcards from a word, concept, or lesson notes.</p>
+
+    <!-- Sub-mode tabs -->
+    <div class="gen-tabs">
+      <button type="button" class="gen-tab active" onclick="setGenMode('quick')">Quick lookup</button>
+      <button type="button" class="gen-tab" onclick="setGenMode('notes')">Lesson notes</button>
     </div>
+
+    <!-- Quick lookup mode -->
+    <div id="genMode-quick" class="gen-mode active">
+      <div class="card">
+        <label class="field-label" for="genInput">What do you want to learn?</label>
+        <textarea id="genInput" placeholder="e.g. saudade, to run, how to express speculative desire in Portuguese…" rows="2"></textarea>
+        <button class="btn btn-primary" id="genBtn" onclick="doGenerate()">
+          <span class="btn-label">Generate flashcards</span>
+          <div class="spinner"></div>
+        </button>
+        <div class="error-msg" id="genError"></div>
+      </div>
+    </div>
+
+    <!-- Lesson notes mode -->
+    <div id="genMode-notes" class="gen-mode">
+      <div class="card">
+        <label class="field-label" for="notesInput">Paste your lesson notes</label>
+        <textarea id="notesInput" placeholder="Paste vocabulary, sentences, corrections from your lesson…" rows="6"></textarea>
+        <button class="btn btn-primary" id="notesBtn" onclick="doParseNotes()">
+          <span class="btn-label">Generate flashcards from notes</span>
+          <div class="spinner"></div>
+        </button>
+        <div class="error-msg" id="notesError"></div>
+      </div>
+    </div>
+
+    <!-- Shared results area -->
     <div id="genResults" style="display:none;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
         <span class="field-label" style="margin:0;">Suggested flashcards</span>
@@ -1362,16 +1470,49 @@ PAGE = """<!doctype html>
   // ── Generate flashcards ──
   let genCardsData = [];
 
+  function setGenMode(mode) {
+    document.querySelectorAll('.gen-tab').forEach((t, i) =>
+      t.classList.toggle('active', (i === 0 ? 'quick' : 'notes') === mode));
+    document.querySelectorAll('.gen-mode').forEach(m => m.classList.remove('active'));
+    document.getElementById('genMode-' + mode).classList.add('active');
+    document.getElementById('genResults').style.display = 'none';
+  }
+
+  function renderGenCards(cards) {
+    genCardsData = cards;
+    let html = '';
+    cards.forEach((c, i) => {
+      const hasSent = c.example_sentence;
+      html += `<div class="gen-card" id="gc-${i}"><label>
+        <input type="checkbox" class="gen-cb" data-idx="${i}" checked onchange="updateGenCount()">
+        <div style="flex:1">
+          <div class="gc-pt">${esc(c.portuguese)}</div>
+          <div class="gc-en">${esc(c.english)}</div>
+          ${c.notes ? '<div class="gc-notes">' + esc(c.notes) + '</div>' : ''}
+        </div>
+      </label>`;
+      if (hasSent) {
+        html += `<div class="gc-example" id="gc-ex-${i}">
+          <span class="gc-sent">${esc(c.example_sentence)}</span>
+          <button class="gc-regen" onclick="regenSentence(${i})">↻</button>
+        </div>`;
+      }
+      html += `</div>`;
+    });
+    document.getElementById('genCards').innerHTML = html;
+    document.getElementById('genResults').style.display = 'block';
+    document.getElementById('genSaved').style.display = 'none';
+    updateGenCount();
+  }
+
   async function doGenerate() {
     const input = document.getElementById('genInput').value.trim();
     if (!input) return;
     const btn = document.getElementById('genBtn');
     const errEl = document.getElementById('genError');
-    const resultsEl = document.getElementById('genResults');
     setLoading(btn, true);
     errEl.classList.remove('show');
-    resultsEl.style.display = 'none';
-    document.getElementById('genSaved').style.display = 'none';
+    document.getElementById('genResults').style.display = 'none';
     try {
       const resp = await fetch('/api/suggest-flashcards', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -1379,25 +1520,58 @@ PAGE = """<!doctype html>
       });
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
-      genCardsData = data.cards;
-      let html = '';
-      data.cards.forEach((c, i) => {
-        html += `<div class="gen-card"><label>
-          <input type="checkbox" class="gen-cb" data-idx="${i}" checked onchange="updateGenCount()">
-          <div>
-            <div class="gc-pt">${esc(c.portuguese)}</div>
-            <div class="gc-en">${esc(c.english)}</div>
-            ${c.notes ? '<div class="gc-notes">' + esc(c.notes) + '</div>' : ''}
-          </div>
-        </label></div>`;
-      });
-      document.getElementById('genCards').innerHTML = html;
-      resultsEl.style.display = 'block';
-      updateGenCount();
+      renderGenCards(data.cards);
     } catch (e) {
       showError(errEl, e.message, doGenerate);
     } finally {
       setLoading(btn, false);
+    }
+  }
+
+  async function doParseNotes() {
+    const notes = document.getElementById('notesInput').value.trim();
+    if (!notes) return;
+    const btn = document.getElementById('notesBtn');
+    const errEl = document.getElementById('notesError');
+    setLoading(btn, true);
+    errEl.classList.remove('show');
+    document.getElementById('genResults').style.display = 'none';
+    try {
+      const resp = await fetch('/api/parse-notes', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({notes}),
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      renderGenCards(data.cards);
+    } catch (e) {
+      showError(errEl, e.message, doParseNotes);
+    } finally {
+      setLoading(btn, false);
+    }
+  }
+
+  async function regenSentence(idx) {
+    const card = genCardsData[idx];
+    if (!card) return;
+    const exEl = document.getElementById('gc-ex-' + idx);
+    const btn = exEl.querySelector('.gc-regen');
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const resp = await fetch('/api/regen-sentence', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({portuguese: card.portuguese}),
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      card.example_sentence = data.sentence;
+      exEl.querySelector('.gc-sent').textContent = data.sentence;
+    } catch(e) {
+      // silently keep old sentence
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '↻';
     }
   }
 
@@ -1416,7 +1590,14 @@ PAGE = """<!doctype html>
   async function saveGenCards() {
     const checked = [...document.querySelectorAll('.gen-cb:checked')];
     if (!checked.length) return;
-    const items = checked.map(cb => genCardsData[cb.dataset.idx]);
+    const items = checked.map(cb => {
+      const c = genCardsData[cb.dataset.idx];
+      return {
+        english: c.english,
+        portuguese: c.portuguese,
+        notes: [c.notes, c.example_sentence].filter(Boolean).join(' — '),
+      };
+    });
     const btn = document.getElementById('saveGenBtn');
     setLoading(btn, true);
     try {
@@ -1428,7 +1609,6 @@ PAGE = """<!doctype html>
       if (data.error) throw new Error(data.error);
       document.getElementById('genSavedText').textContent = data.count + ' card' + (data.count === 1 ? '' : 's') + ' saved!';
       document.getElementById('genSaved').style.display = 'block';
-      // Dim saved cards
       checked.forEach(cb => {
         cb.checked = false;
         cb.disabled = true;
@@ -1436,8 +1616,7 @@ PAGE = """<!doctype html>
       });
       updateGenCount();
     } catch (e) {
-      document.getElementById('genError').textContent = e.message;
-      document.getElementById('genError').classList.add('show');
+      showError(document.getElementById('genError'), e.message, saveGenCards);
     } finally {
       setLoading(btn, false);
     }
