@@ -168,26 +168,73 @@ def log_to_sheet(type_: str, english: str, portuguese: str, status: str = "", no
 
 
 # ── Claude helpers ─────────────────────────────────────────────────────────────
+import time as _time
+
 def claude_client():
     return anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 
+class _UserError(Exception):
+    """An error with a user-friendly message."""
+    pass
+
+
+def _call_claude(max_tokens: int, prompt: str, retries: int = 2) -> str:
+    """Call the Claude API with automatic retry on transient failures.
+
+    Returns the text content of the response.
+    Raises _UserError with a friendly message on permanent failure.
+    """
+    last_exc = None
+    for attempt in range(1 + retries):
+        try:
+            resp = claude_client().messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return resp.content[0].text.strip()
+        except anthropic.APIConnectionError as exc:
+            last_exc = exc
+        except anthropic.RateLimitError as exc:
+            last_exc = exc
+        except anthropic.APIStatusError as exc:
+            if exc.status_code >= 500:
+                last_exc = exc
+            else:
+                # 4xx errors (bad request, auth) won't fix with a retry
+                raise _UserError("Something went wrong — please try again.")
+        except Exception as exc:
+            raise _UserError("Something went wrong — please try again.")
+        # Wait briefly before retry
+        if attempt < retries:
+            _time.sleep(1.5 * (attempt + 1))
+    # All retries exhausted
+    print(f"[Claude API error after {1 + retries} attempts] {last_exc}")
+    raise _UserError("Could not reach the translation service — please check your connection and try again.")
+
+
+def _parse_json_response(raw: str) -> dict | list:
+    """Parse a JSON response from Claude, stripping markdown fences if present."""
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.lower().startswith("json"):
+            raw = raw[4:]
+    try:
+        return json.loads(raw.strip())
+    except json.JSONDecodeError:
+        raise _UserError("Got an unexpected response — please try again.")
+
+
 def translate_to_portuguese(text: str) -> str:
     """Translate English text to European Portuguese."""
-    resp = claude_client().messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=1024,
-        messages=[{
-            "role": "user",
-            "content": (
-                "Translate the following English text to European Portuguese "
-                "(Portugal dialect — not Brazilian Portuguese). "
-                "Return only the translation, with no explanation or extra text.\n\n"
-                f"English: {text}"
-            ),
-        }],
+    return _call_claude(
+        1024,
+        "Translate the following English text to European Portuguese "
+        "(Portugal dialect — not Brazilian Portuguese). "
+        "Return only the translation, with no explanation or extra text.\n\n"
+        f"English: {text}",
     )
-    return resp.content[0].text.strip()
 
 
 def check_portuguese(text: str) -> dict:
@@ -195,34 +242,22 @@ def check_portuguese(text: str) -> dict:
     Check whether a Portuguese sentence is correct European Portuguese.
     Returns a dict with keys: is_correct, correct_portuguese, explanation, english_translation.
     """
-    resp = claude_client().messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=1024,
-        messages=[{
-            "role": "user",
-            "content": (
-                "You are an expert in European Portuguese (Portugal dialect). "
-                "Analyse the sentence below for grammar, vocabulary, and idiom — "
-                "specifically from a European Portuguese (not Brazilian) perspective.\n\n"
-                "Return ONLY a valid JSON object with these exact keys (no markdown, no code fences):\n"
-                "{\n"
-                '  "is_correct": true or false,\n'
-                '  "correct_portuguese": "the correct European Portuguese version '
-                '(identical to input if already correct)",\n'
-                '  "explanation": "brief explanation of any issues; empty string if correct",\n'
-                '  "english_translation": "English translation of the correct version"\n'
-                "}\n\n"
-                f"Portuguese sentence: {text}"
-            ),
-        }],
+    raw = _call_claude(
+        1024,
+        "You are an expert in European Portuguese (Portugal dialect). "
+        "Analyse the sentence below for grammar, vocabulary, and idiom — "
+        "specifically from a European Portuguese (not Brazilian) perspective.\n\n"
+        "Return ONLY a valid JSON object with these exact keys (no markdown, no code fences):\n"
+        "{\n"
+        '  "is_correct": true or false,\n'
+        '  "correct_portuguese": "the correct European Portuguese version '
+        '(identical to input if already correct)",\n'
+        '  "explanation": "brief explanation of any issues; empty string if correct",\n'
+        '  "english_translation": "English translation of the correct version"\n'
+        "}\n\n"
+        f"Portuguese sentence: {text}",
     )
-    raw = resp.content[0].text.strip()
-    # Strip markdown fences if Claude wraps the JSON
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.lower().startswith("json"):
-            raw = raw[4:]
-    return json.loads(raw.strip())
+    return _parse_json_response(raw)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -242,8 +277,10 @@ def api_translate():
 
     try:
         portuguese = translate_to_portuguese(english)
-    except Exception as exc:
+    except _UserError as exc:
         return jsonify({"error": str(exc)}), 500
+    except Exception:
+        return jsonify({"error": "Something went wrong — please try again."}), 500
 
     log_to_db("Translation", english, portuguese)
     log_to_sheet("Translation", english, portuguese)
@@ -260,8 +297,10 @@ def api_check():
 
     try:
         result = check_portuguese(portuguese_input)
-    except Exception as exc:
+    except _UserError as exc:
         return jsonify({"error": str(exc)}), 500
+    except Exception:
+        return jsonify({"error": "Something went wrong — please try again."}), 500
 
     explanation = result.get("explanation", "")
     notes = f"You wrote: {portuguese_input}" + (f" — {explanation}" if explanation else "")
@@ -298,29 +337,18 @@ def grade_translation_practice(english: str, user_pt: str) -> dict:
         "  - \"worth_flashcard\": true if useful to study\n"
         "Return only the JSON object, nothing else."
     )
-    raw = claude_client().messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=700,
-        messages=[{"role": "user", "content": prompt}],
-    ).content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.lower().startswith("json"):
-            raw = raw[4:]
-    return json.loads(raw.strip())
+    raw = _call_claude(700, prompt)
+    return _parse_json_response(raw)
 
 
 def generate_practice_sentence(pt_key_phrase: str) -> str:
-    resp = claude_client().messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=80,
-        messages=[{"role": "user", "content": (
-            f"Write one short, natural European Portuguese sentence (not Brazilian, max 12 words) "
-            f"that uses the word or phrase \"{pt_key_phrase}\". "
-            "Return only the Portuguese sentence, nothing else."
-        )}],
+    raw = _call_claude(
+        80,
+        f"Write one short, natural European Portuguese sentence (not Brazilian, max 12 words) "
+        f"that uses the word or phrase \"{pt_key_phrase}\". "
+        "Return only the Portuguese sentence, nothing else.",
     )
-    return resp.content[0].text.strip().strip('"')
+    return raw.strip('"')
 
 
 _NEWS_FEEDS = [
@@ -448,12 +476,7 @@ def generate_practice_paragraph(topic: str = "", difficulty: str = "intermediate
         "Write it as natural dialogue or narration that someone might actually say or hear in real life. "
         "Return only the passage, nothing else."
     )
-    resp = claude_client().messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=250,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return resp.content[0].text.strip()
+    return _call_claude(250, prompt)
 
 
 # ── Practice routes ────────────────────────────────────────────────────────────
@@ -499,8 +522,10 @@ def practice_grade():
     data = request.get_json(force=True) or {}
     try:
         result = grade_translation_practice(data.get("english", ""), data.get("user_pt", ""))
-    except Exception as exc:
+    except _UserError as exc:
         return jsonify({"error": str(exc)}), 500
+    except Exception:
+        return jsonify({"error": "Something went wrong — please try again."}), 500
     return jsonify(result)
 
 
@@ -536,14 +561,12 @@ def practice_ask():
         prompt += f"Specific mistakes:{mistakes_text}\n"
     prompt += f"\nStudent's question: \"{question}\"\n\nAnswer briefly (2-4 sentences). Use European Portuguese examples."
     try:
-        resp = claude_client().messages.create(
-            model=CLAUDE_MODEL, max_tokens=300,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        answer = resp.content[0].text.strip()
+        answer = _call_claude(300, prompt)
         return jsonify({"answer": answer})
-    except Exception as exc:
+    except _UserError as exc:
         return jsonify({"error": str(exc)}), 500
+    except Exception:
+        return jsonify({"error": "Something went wrong — please try again."}), 500
 
 
 @app.route("/practice/advance", methods=["POST"])
@@ -574,8 +597,10 @@ def practice_generate_sentence():
     pt_key = data.get("pt_key_phrase", "").strip()
     try:
         sentence = generate_practice_sentence(pt_key) if pt_key else ""
-    except Exception as exc:
+    except _UserError as exc:
         return jsonify({"error": str(exc)}), 500
+    except Exception:
+        return jsonify({"error": "Something went wrong — please try again."}), 500
     return jsonify({"sentence": sentence})
 
 
@@ -591,10 +616,15 @@ def practice_get_paragraph():
         else:
             text, src_name = generate_practice_paragraph(topic, difficulty), None
         return jsonify({"text": text, "source": src_name})
+    except _UserError as e:
+        return jsonify({"error": str(e)}), 500
+    except ValueError as e:
+        # fetch_article_paragraph raises ValueError for expected issues (no article, too short)
+        return jsonify({"error": str(e)}), 500
     except Exception as e:
         import traceback
-        traceback.print_exc()   # visible in Render logs
-        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+        traceback.print_exc()
+        return jsonify({"error": "Could not fetch text — please try again."}), 500
 
 
 @app.route("/practice/add-to-flashcards", methods=["POST"])
@@ -786,21 +816,15 @@ def api_suggest_flashcards():
         "- Return ONLY the JSON array, nothing else"
     )
     try:
-        resp = claude_client().messages.create(
-            model=CLAUDE_MODEL, max_tokens=600,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = resp.content[0].text.strip()
-        # Strip markdown fences if present
-        if raw.startswith("```"):
-            raw = re.sub(r"^```\w*\n?", "", raw)
-            raw = re.sub(r"\n?```$", "", raw)
-        cards = json.loads(raw)
+        raw = _call_claude(600, prompt)
+        cards = _parse_json_response(raw)
         if not isinstance(cards, list):
             cards = [cards]
         return jsonify({"cards": cards})
-    except (json.JSONDecodeError, Exception) as exc:
+    except _UserError as exc:
         return jsonify({"error": str(exc)}), 500
+    except Exception:
+        return jsonify({"error": "Something went wrong — please try again."}), 500
 
 
 @app.route("/api/save-flashcards", methods=["POST"])
@@ -1283,8 +1307,7 @@ PAGE = """<!doctype html>
       resultEl.classList.add('show');
       document.getElementById('translateLogged').classList.add('show');
     } catch (e) {
-      errEl.textContent = e.message || 'Something went wrong. Please try again.';
-      errEl.classList.add('show');
+      showError(errEl, e.message, doTranslate);
     } finally {
       setLoading(btn, false);
     }
@@ -1330,8 +1353,7 @@ PAGE = """<!doctype html>
       resultEl.classList.add('show');
       document.getElementById('checkLogged').classList.add('show');
     } catch (e) {
-      errEl.textContent = e.message || 'Something went wrong. Please try again.';
-      errEl.classList.add('show');
+      showError(errEl, e.message, doCheck);
     } finally {
       setLoading(btn, false);
     }
@@ -1373,8 +1395,7 @@ PAGE = """<!doctype html>
       resultsEl.style.display = 'block';
       updateGenCount();
     } catch (e) {
-      errEl.textContent = e.message || 'Something went wrong. Please try again.';
-      errEl.classList.add('show');
+      showError(errEl, e.message, doGenerate);
     } finally {
       setLoading(btn, false);
     }
@@ -1420,6 +1441,15 @@ PAGE = """<!doctype html>
     } finally {
       setLoading(btn, false);
     }
+  }
+
+  function showError(el, msg, retryFn) {
+    el.innerHTML = (msg || 'Something went wrong.') +
+      ' <button onclick="this.parentElement.classList.remove(\'show\');(' +
+      retryFn.name + ')()" style="background:none;border:none;color:var(--green);' +
+      'font-weight:700;font-size:inherit;cursor:pointer;text-decoration:underline;' +
+      'font-family:inherit;padding:0;">Retry</button>';
+    el.classList.add('show');
   }
 
   function setLoading(btn, on) {
@@ -2047,6 +2077,7 @@ PRACTICE_SENTENCE_PAGE = """<!doctype html>
       </button>
       <button class="btn btn-outline btn-sm" onclick="finishEarly()">Done</button>
     </div>
+    <div id="gradeError" style="display:none;background:var(--red-light);border:1.5px solid #fca5a5;border-radius:12px;padding:14px 16px;margin-top:12px;font-size:14px;color:#dc2626;line-height:1.5;"></div>
 
     <div class="feedback" id="feedback" style="display:none">
       <span class="score-badge" id="scoreBadge"></span>
@@ -2103,7 +2134,10 @@ PRACTICE_SENTENCE_PAGE = """<!doctype html>
       document.getElementById('translationInput').disabled = true;
       document.getElementById('nextRow').style.display = 'block';
     } catch(e) {
-      alert('Grading failed: ' + (e.message || 'Unknown error. Please try again.'));
+      const ge = document.getElementById('gradeError');
+      ge.innerHTML = (e.message || 'Something went wrong.') +
+        ' <button onclick="this.parentElement.style.display=\'none\';checkTranslation()" style="background:none;border:none;color:var(--green);font-weight:700;font-size:inherit;cursor:pointer;text-decoration:underline;font-family:inherit;padding:0;">Retry</button>';
+      ge.style.display = 'block';
     } finally {
       setLoading(btn, false);
     }
