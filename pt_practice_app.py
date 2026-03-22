@@ -759,6 +759,69 @@ def api_generate_flashcards():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/api/suggest-flashcards", methods=["POST"])
+@require_password
+def api_suggest_flashcards():
+    """Use Claude to generate flashcard suggestions from a word, phrase, or concept."""
+    data = request.get_json(force=True) or {}
+    user_input = (data.get("input") or "").strip()
+    if not user_input:
+        return jsonify({"error": "Please enter a word, phrase, or concept."}), 400
+    prompt = (
+        "You are a European Portuguese language tutor creating flashcards.\n\n"
+        f"The student wants to learn: \"{user_input}\"\n\n"
+        "Generate flashcard(s) for this. The input could be:\n"
+        "- An English word/phrase → create Portuguese translation card(s)\n"
+        "- A Portuguese word/phrase → create English meaning card(s)\n"
+        "- A concept or grammar instruction → create several cards illustrating the point\n\n"
+        "Return a JSON array of objects. Each object has:\n"
+        "- \"english\": the English side (word, phrase, or short sentence)\n"
+        "- \"portuguese\": the European Portuguese side\n"
+        "- \"notes\": optional brief usage note or context (1 sentence max, or empty string)\n\n"
+        "Rules:\n"
+        "- Use European Portuguese (not Brazilian)\n"
+        "- For single words, include the article (o/a) for nouns\n"
+        "- For grammar concepts, create 2-5 example cards that illustrate different uses\n"
+        "- Keep it practical and conversational\n"
+        "- Return ONLY the JSON array, nothing else"
+    )
+    try:
+        resp = claude_client().messages.create(
+            model=CLAUDE_MODEL, max_tokens=600,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = resp.content[0].text.strip()
+        # Strip markdown fences if present
+        if raw.startswith("```"):
+            raw = re.sub(r"^```\w*\n?", "", raw)
+            raw = re.sub(r"\n?```$", "", raw)
+        cards = json.loads(raw)
+        if not isinstance(cards, list):
+            cards = [cards]
+        return jsonify({"cards": cards})
+    except (json.JSONDecodeError, Exception) as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/save-flashcards", methods=["POST"])
+@require_password
+def api_save_flashcards():
+    """Save selected generated flashcards to the database."""
+    data = request.get_json(force=True) or {}
+    items = data.get("items", [])
+    if not items:
+        return jsonify({"error": "No cards selected."}), 400
+    count = 0
+    for item in items:
+        english = (item.get("english") or "").strip()
+        portuguese = (item.get("portuguese") or "").strip()
+        notes = (item.get("notes") or "").strip()
+        if english and portuguese:
+            log_to_db("Generated", english, portuguese, "", notes)
+            count += 1
+    return jsonify({"count": count})
+
+
 # ── UI ────────────────────────────────────────────────────────────────────────
 PAGE = """<!doctype html>
 <html lang="en">
@@ -1011,6 +1074,46 @@ PAGE = """<!doctype html>
       margin-top: 10px;
     }
     .logged-chip.show { display: flex; }
+
+    /* ── Generate flashcard cards ── */
+    .gen-card {
+      background: var(--surface);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      padding: 14px 16px;
+      margin-bottom: 10px;
+      border: 1.5px solid transparent;
+      transition: border-color .15s, background .15s;
+    }
+    .gen-card:has(.gen-cb:checked) {
+      border-color: var(--green-mid);
+      background: #f0fdf4;
+    }
+    .gen-card label {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      cursor: pointer;
+    }
+    .gen-cb {
+      margin-top: 3px;
+      width: 18px;
+      height: 18px;
+      accent-color: var(--green);
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    .gen-card .gc-pt { font-size: 17px; font-weight: 700; margin-bottom: 2px; }
+    .gen-card .gc-en { font-size: 14px; color: var(--muted); margin-bottom: 2px; }
+    .gen-card .gc-notes { font-size: 13px; color: #64748b; line-height: 1.5; margin-top: 4px; font-style: italic; }
+    .gen-count {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--green);
+      background: var(--green-light);
+      padding: 3px 10px;
+      border-radius: 99px;
+    }
   </style>
 </head>
 <body>
@@ -1048,6 +1151,36 @@ PAGE = """<!doctype html>
       <div class="logged-chip" id="translateLogged">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
         Logged
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Generate Flashcards Panel ── -->
+  <div id="panel-generate" class="panel">
+    <p class="panel-title">Generate</p>
+    <p class="panel-sub">Create flashcards from a word, phrase, or concept.</p>
+    <div class="card">
+      <label class="field-label" for="genInput">What do you want to learn?</label>
+      <textarea id="genInput" placeholder="e.g. saudade, to run, how to express speculative desire in Portuguese…" rows="2"></textarea>
+      <button class="btn btn-primary" id="genBtn" onclick="doGenerate()">
+        <span class="btn-label">Generate flashcards</span>
+        <div class="spinner"></div>
+      </button>
+      <div class="error-msg" id="genError"></div>
+    </div>
+    <div id="genResults" style="display:none;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <span class="field-label" style="margin:0;">Suggested flashcards</span>
+        <span class="gen-count" id="genCount">0 selected</span>
+      </div>
+      <div id="genCards"></div>
+      <button class="btn btn-primary" id="saveGenBtn" onclick="saveGenCards()" disabled style="width:100%;justify-content:center;margin-top:8px;">
+        <span class="btn-label">Save to flashcards</span>
+        <div class="spinner"></div>
+      </button>
+      <div id="genSaved" style="display:none;margin-top:10px;text-align:center;font-size:14px;font-weight:600;color:var(--green);">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-2px"><path d="M20 6L9 17l-5-5"/></svg>
+        <span id="genSavedText"></span>
       </div>
     </div>
   </div>
@@ -1098,13 +1231,17 @@ PAGE = """<!doctype html>
     <span class="nav-icon">✓</span>
     <span>Check</span>
   </button>
+  <button class="nav-item" onclick="switchTab('generate', this)">
+    <span class="nav-icon">⚡</span>
+    <span>Generate</span>
+  </button>
   <a href="/practice/" class="nav-item">
     <span class="nav-icon">📝</span>
     <span>Practice</span>
   </a>
   <a href="/flashcards" class="nav-item">
     <span class="nav-icon">📚</span>
-    <span>Flashcards</span>
+    <span>Cards</span>
   </a>
 </nav>
 
@@ -1195,6 +1332,91 @@ PAGE = """<!doctype html>
     } catch (e) {
       errEl.textContent = e.message || 'Something went wrong. Please try again.';
       errEl.classList.add('show');
+    } finally {
+      setLoading(btn, false);
+    }
+  }
+
+  // ── Generate flashcards ──
+  let genCardsData = [];
+
+  async function doGenerate() {
+    const input = document.getElementById('genInput').value.trim();
+    if (!input) return;
+    const btn = document.getElementById('genBtn');
+    const errEl = document.getElementById('genError');
+    const resultsEl = document.getElementById('genResults');
+    setLoading(btn, true);
+    errEl.classList.remove('show');
+    resultsEl.style.display = 'none';
+    document.getElementById('genSaved').style.display = 'none';
+    try {
+      const resp = await fetch('/api/suggest-flashcards', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({input}),
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      genCardsData = data.cards;
+      let html = '';
+      data.cards.forEach((c, i) => {
+        html += `<div class="gen-card"><label>
+          <input type="checkbox" class="gen-cb" data-idx="${i}" checked onchange="updateGenCount()">
+          <div>
+            <div class="gc-pt">${esc(c.portuguese)}</div>
+            <div class="gc-en">${esc(c.english)}</div>
+            ${c.notes ? '<div class="gc-notes">' + esc(c.notes) + '</div>' : ''}
+          </div>
+        </label></div>`;
+      });
+      document.getElementById('genCards').innerHTML = html;
+      resultsEl.style.display = 'block';
+      updateGenCount();
+    } catch (e) {
+      errEl.textContent = e.message || 'Something went wrong. Please try again.';
+      errEl.classList.add('show');
+    } finally {
+      setLoading(btn, false);
+    }
+  }
+
+  function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function updateGenCount() {
+    const checked = document.querySelectorAll('.gen-cb:checked').length;
+    document.getElementById('genCount').textContent = checked + ' selected';
+    document.getElementById('saveGenBtn').disabled = checked === 0;
+  }
+
+  async function saveGenCards() {
+    const checked = [...document.querySelectorAll('.gen-cb:checked')];
+    if (!checked.length) return;
+    const items = checked.map(cb => genCardsData[cb.dataset.idx]);
+    const btn = document.getElementById('saveGenBtn');
+    setLoading(btn, true);
+    try {
+      const resp = await fetch('/api/save-flashcards', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({items}),
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      document.getElementById('genSavedText').textContent = data.count + ' card' + (data.count === 1 ? '' : 's') + ' saved!';
+      document.getElementById('genSaved').style.display = 'block';
+      // Dim saved cards
+      checked.forEach(cb => {
+        cb.checked = false;
+        cb.disabled = true;
+        cb.closest('.gen-card').style.opacity = '.45';
+      });
+      updateGenCount();
+    } catch (e) {
+      document.getElementById('genError').textContent = e.message;
+      document.getElementById('genError').classList.add('show');
     } finally {
       setLoading(btn, false);
     }
