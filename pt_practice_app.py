@@ -214,7 +214,7 @@ def _call_claude(max_tokens: int, prompt: str, retries: int = 2) -> str:
     raise _UserError("Could not reach the translation service — please check your connection and try again.")
 
 
-def _parse_json_response(raw: str) -> dict | list:
+def _parse_json_response(raw: str):
     """Parse a JSON response from Claude, stripping markdown fences if present."""
     if raw.startswith("```"):
         raw = raw.split("```")[1]
@@ -1623,11 +1623,12 @@ PAGE = """<!doctype html>
   }
 
   function showError(el, msg, retryFn) {
-    el.innerHTML = (msg || 'Something went wrong.') +
-      ' <button onclick="this.parentElement.classList.remove(\'show\');(' +
-      retryFn.name + ')()" style="background:none;border:none;color:var(--green);' +
-      'font-weight:700;font-size:inherit;cursor:pointer;text-decoration:underline;' +
-      'font-family:inherit;padding:0;">Retry</button>';
+    el.textContent = msg || 'Something went wrong.';
+    const btn = document.createElement('button');
+    btn.textContent = ' Retry';
+    btn.style.cssText = 'background:none;border:none;color:var(--green);font-weight:700;font-size:inherit;cursor:pointer;text-decoration:underline;font-family:inherit;padding:0;margin-left:4px;';
+    btn.onclick = function() { el.classList.remove('show'); retryFn(); };
+    el.appendChild(btn);
     el.classList.add('show');
   }
 
