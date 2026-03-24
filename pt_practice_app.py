@@ -2364,8 +2364,12 @@ PRACTICE_SENTENCE_PAGE = """<!doctype html>
       document.getElementById('nextRow').style.display = 'block';
     } catch(e) {
       const ge = document.getElementById('gradeError');
-      ge.innerHTML = (e.message || 'Something went wrong.') +
-        ' <button onclick="this.parentElement.style.display=\'none\';checkTranslation()" style="background:none;border:none;color:var(--green);font-weight:700;font-size:inherit;cursor:pointer;text-decoration:underline;font-family:inherit;padding:0;">Retry</button>';
+      ge.textContent = e.message || 'Something went wrong.';
+      const retryBtn = document.createElement('button');
+      retryBtn.textContent = ' Retry';
+      retryBtn.style.cssText = 'background:none;border:none;color:var(--green);font-weight:700;font-size:inherit;cursor:pointer;text-decoration:underline;font-family:inherit;padding:0;margin-left:4px;';
+      retryBtn.onclick = function() { ge.style.display = 'none'; checkTranslation(); };
+      ge.appendChild(retryBtn);
       ge.style.display = 'block';
     } finally {
       setLoading(btn, false);
