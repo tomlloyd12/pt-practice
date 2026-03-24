@@ -905,6 +905,44 @@ def api_save_flashcards():
     return jsonify({"count": count})
 
 
+# ── Shared bottom navigation ──────────────────────────────────────────────────
+_BOTTOM_NAV_CSS = """
+    .bottom-nav {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      height: calc(60px + env(safe-area-inset-bottom));
+      background: white; border-top: 1px solid #e2e8f0;
+      display: flex; z-index: 100;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .nav-item {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 2px;
+      border: none; background: none; cursor: pointer;
+      color: #94a3b8; font-size: 10px; font-weight: 600;
+      text-decoration: none; padding: 6px 4px; font-family: inherit;
+      transition: color .15s; -webkit-tap-highlight-color: transparent;
+    }
+    .nav-item .nav-icon { font-size: 22px; line-height: 1; }
+    .nav-item.active { color: #166534; }
+"""
+
+def _bottom_nav_html(active):
+    """Return bottom nav HTML with the given tab highlighted."""
+    items = [
+        ("🔄", "Translate", "/?tab=translate", "translate"),
+        ("✓",  "Check",     "/?tab=check",     "check"),
+        ("⚡", "Generate",  "/?tab=generate",   "generate"),
+        ("📝", "Practice",  "/practice/",       "practice"),
+        ("📚", "Cards",     "/flashcards",      "cards"),
+    ]
+    nav = '<nav class="bottom-nav">'
+    for icon, label, href, key in items:
+        cls = "nav-item active" if key == active else "nav-item"
+        nav += f'<a href="{href}" class="{cls}"><span class="nav-icon">{icon}</span><span>{label}</span></a>'
+    nav += '</nav>'
+    return nav
+
+
 # ── UI ────────────────────────────────────────────────────────────────────────
 PAGE = """<!doctype html>
 <html lang="en">
@@ -1385,6 +1423,18 @@ PAGE = """<!doctype html>
     document.getElementById('panel-' + name).classList.add('active');
   }
 
+  // Open correct tab if arriving via ?tab=check etc.
+  (function() {
+    const tab = new URLSearchParams(location.search).get('tab');
+    if (tab && document.getElementById('panel-' + tab)) {
+      const navBtns = document.querySelectorAll('button.nav-item');
+      const map = {translate: 0, check: 1, generate: 2};
+      if (map[tab] !== undefined && navBtns[map[tab]]) {
+        switchTab(tab, navBtns[map[tab]]);
+      }
+    }
+  })();
+
   async function copyText(elId, btn) {
     const text = document.getElementById(elId).textContent.trim();
     await navigator.clipboard.writeText(text).catch(() => {});
@@ -1667,12 +1717,11 @@ FLASHCARDS_PAGE = """<!doctype html>
       --text: #0f172a; --muted: #64748b;
       --shadow: 0 1px 3px rgba(0,0,0,.07), 0 4px 16px rgba(0,0,0,.06);
     }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding-bottom: 100px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
 
     /* ── Header ── */
     header { background: var(--green); padding: 0 20px; padding-top: env(safe-area-inset-top); display: flex; align-items: center; height: calc(56px + env(safe-area-inset-top)); gap: 10px; position: sticky; top: 0; z-index: 50; }
-    header h1 { color: white; font-size: 18px; font-weight: 800; }
-    .back { color: rgba(255,255,255,.85); font-size: 13px; font-weight: 600; text-decoration: none; background: rgba(255,255,255,.15); padding: 5px 12px; border-radius: 99px; margin-left: auto; white-space: nowrap; }
+    header h1 { color: white; font-size: 18px; font-weight: 800; }""" + _BOTTOM_NAV_CSS + """
 
     /* ── Sticky toolbar ── */
     .toolbar-wrap {
@@ -1771,7 +1820,6 @@ FLASHCARDS_PAGE = """<!doctype html>
 <header>
   <span style="font-size:22px">🇵🇹</span>
   <h1>Flashcards</h1>
-  <a href="/" class="back">← Back</a>
 </header>
 
 {% if mistakes %}
@@ -1943,6 +1991,7 @@ FLASHCARDS_PAGE = """<!doctype html>
     setTimeout(() => t.classList.remove('show'), 4000);
   }
 </script>
+""" + _bottom_nav_html('cards') + """
 </body>
 </html>
 """
@@ -1955,11 +2004,11 @@ _PRACTICE_CSS = """
       --bg:#f1f5f9; --surface:#fff; --border:#e2e8f0; --text:#0f172a; --muted:#64748b;
       --radius:14px; --shadow:0 1px 3px rgba(0,0,0,.07),0 6px 20px rgba(0,0,0,.06);
     }
-    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; padding-bottom:calc(68px + env(safe-area-inset-bottom)); }
     header { background:var(--green); padding:0 20px; padding-top:env(safe-area-inset-top); display:flex; align-items:center; height:calc(56px + env(safe-area-inset-top)); gap:10px; }
     header h1 { color:white; font-size:17px; font-weight:700; }
     .back { color:rgba(255,255,255,.85); font-size:13px; font-weight:600; text-decoration:none; background:rgba(255,255,255,.15); padding:5px 12px; border-radius:99px; margin-left:auto; }
-    main { padding:20px 16px 60px; max-width:640px; margin:0 auto; }
+    main { padding:20px 16px 20px; max-width:640px; margin:0 auto; }""" + _BOTTOM_NAV_CSS + """
     .card { background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow); padding:20px; margin-bottom:16px; }
     .card h2 { font-size:18px; font-weight:700; margin-bottom:6px; }
     .card p { font-size:14px; color:var(--muted); margin-bottom:16px; line-height:1.6; }
@@ -2072,7 +2121,6 @@ PRACTICE_START_PAGE = """<!doctype html>
 <header>
   <span style="font-size:22px">🇵🇹</span>
   <h1>Practice Test</h1>
-  <a href="/" class="back">← Back</a>
 </header>
 <main>
   <div class="card">
@@ -2221,6 +2269,7 @@ PRACTICE_START_PAGE = """<!doctype html>
     setTimeout(() => { t.className = 'toast'; }, 3500);
   }
 </script>
+""" + _bottom_nav_html('practice') + """
 </body></html>
 """
 
@@ -2445,7 +2494,6 @@ PRACTICE_SUMMARY_PAGE = """<!doctype html>
 <header>
   <span style="font-size:22px">🇵🇹</span>
   <h1>Practice Test</h1>
-  <a href="/" class="back">← Back</a>
 </header>
 <main>
   {% set n_correct = results | selectattr('score','equalto','correct') | list | length %}
@@ -2627,6 +2675,7 @@ PRACTICE_SUMMARY_PAGE = """<!doctype html>
     _toastTimer = setTimeout(() => t.classList.remove('show'), 4000);
   }
 </script>
+""" + _bottom_nav_html('practice') + """
 </body></html>
 """
 
