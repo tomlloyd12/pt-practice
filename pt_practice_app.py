@@ -351,120 +351,36 @@ def generate_practice_sentence(pt_key_phrase: str) -> str:
     return raw.strip('"')
 
 
-_NEWS_FEEDS = [
-    # HTTPS-only, verified working feeds (Reuters removed public RSS in 2020)
-    ("The Guardian", "https://www.theguardian.com/world/rss"),
-    ("NPR News",     "https://feeds.npr.org/1001/rss.xml"),
-    ("BBC News",     "https://feeds.bbci.co.uk/news/rss.xml"),
-    ("BBC World",    "https://feeds.bbci.co.uk/news/world/rss.xml"),
-]
+_DIFF_MAP = {
+    "b1": "simple, clear sentences with common vocabulary and straightforward grammar (B1 level)",
+    "b2": "natural conversational language with idiomatic expressions and some complex structures (B2 level)",
+    "c1": "sophisticated language with nuance, colloquialisms, and complex sentence structures (C1 level)",
+    "c2": "native-level language with slang, cultural references, ambiguity, and subtle register shifts (C2 level)",
+}
 
 
-def _try_rss_feed(feed_url: str, feed_name: str, topic: str = ""):
-    """Return (text, feed_name) from one RSS feed, or None if nothing usable."""
-    import xml.etree.ElementTree as ET
-    import random
-    resp = requests.get(
-        feed_url,
-        headers={"User-Agent": "Mozilla/5.0 (compatible; PT-Practice-App/1.0)"},
-        timeout=5,
+def generate_conversation(difficulty: str = "b1") -> str:
+    """Use Claude to generate a realistic conversation/interview/podcast transcript."""
+    diff_desc = _DIFF_MAP.get(difficulty, _DIFF_MAP["b1"])
+    prompt = (
+        "Write a short, realistic excerpt from a conversation in English (4-6 lines) "
+        "for Portuguese translation practice. "
+        "Pick a RANDOM format each time — e.g. a podcast interview, a casual chat between friends, "
+        "a phone call, a WhatsApp voice note, two colleagues at lunch, an overheard conversation "
+        "on a train, a radio call-in, a vlog monologue, a flatmate argument, catching up at a party, etc. "
+        "Pick a different format and topic every time — be creative and varied. "
+        "Use 2-3 speakers with names (e.g. 'Ana:', 'Host:', 'Mark:'). "
+        f"Use {diff_desc}. "
+        "Make it sound like how people ACTUALLY talk — with contractions, fillers, "
+        "incomplete thoughts, natural rhythm. Not formal or literary. "
+        "Return only the conversation, nothing else."
     )
-    resp.raise_for_status()
-    # Reject HTML responses (some feeds return a landing page instead of XML)
-    ct = resp.headers.get("Content-Type", "")
-    if "html" in ct and "xml" not in ct:
-        return None
-    root = ET.fromstring(resp.content)
-    items = list(root.findall(".//item"))
-    if not items:
-        return None
-    # Filter by topic keywords when given
-    if topic.strip():
-        kw = topic.lower().split()
-        matched = [i for i in items
-                   if any(w in (i.findtext("title", "") + " " + i.findtext("description", "")).lower()
-                          for w in kw)]
-        items = matched or items   # fall back to all items if no topic match
-    random.shuffle(items)
-    for item in items[:8]:
-        title = (item.findtext("title") or "").strip()
-        desc  = (item.findtext("description") or "").strip()
-        # Strip HTML tags and decode common entities
-        desc = re.sub(r"<[^>]+>", "", desc)
-        for ent, ch in [("&amp;","&"),("&lt;","<"),("&gt;",">"),("&quot;",'"'),("&#39;","'"),("&nbsp;"," ")]:
-            desc = desc.replace(ent, ch)
-        desc = re.sub(r"\s+", " ", desc).strip()
-        # Build text: title sentence + first 3 description sentences
-        parts = []
-        if title:
-            parts.append(title if title[-1] in ".!?" else title + ".")
-        if len(desc) > 20:
-            sents = re.split(r"(?<=[.!?])\s+", desc)
-            parts.extend(sents[:3])
-        text = " ".join(parts).strip()
-        if len(text) >= 100:
-            return text, feed_name
-    return None
+    return _call_claude(300, prompt)
 
 
-def _wikipedia_paragraph(topic: str = "") -> tuple:
-    """Fetch a paragraph from Wikipedia. Retries random articles if stubs are hit."""
-    import urllib.parse
-    # Topic-specific lookup first
-    if topic.strip():
-        slug = urllib.parse.quote(topic.strip().replace(" ", "_"))
-        wr = requests.get(
-            f"https://en.wikipedia.org/api/rest_v1/page/summary/{slug}",
-            headers={"User-Agent": "PT-Practice-App/1.0"},
-            timeout=8,
-        )
-        if wr.status_code == 404:
-            raise ValueError(f'No Wikipedia article found for "{topic}" — try a different topic')
-        wr.raise_for_status()
-        extract = (wr.json().get("extract") or "").strip().split("\n")[0].strip()
-        if len(extract) >= 60:
-            sentences = re.split(r"(?<=[.!?])\s+", extract)
-            return " ".join(sentences[:5]), "Wikipedia"
-        # Article too short — fall through to random below
-    # Random articles — retry up to 5 times to skip stubs
-    for _ in range(5):
-        wr = requests.get(
-            "https://en.wikipedia.org/api/rest_v1/page/random/summary",
-            headers={"User-Agent": "PT-Practice-App/1.0"},
-            timeout=8,
-        )
-        wr.raise_for_status()
-        extract = (wr.json().get("extract") or "").strip().split("\n")[0].strip()
-        if len(extract) >= 60:
-            sentences = re.split(r"(?<=[.!?])\s+", extract)
-            return " ".join(sentences[:5]), "Wikipedia"
-    raise ValueError("Could not find a suitable article — please try again")
-
-
-def fetch_article_paragraph(topic: str = ""):
-    """Fetch a paragraph from news RSS feeds; fall back to Wikipedia."""
-    import random
-    feeds = list(_NEWS_FEEDS)
-    random.shuffle(feeds)
-    for feed_name, feed_url in feeds:
-        try:
-            result = _try_rss_feed(feed_url, feed_name, topic)
-            if result:
-                return result
-        except Exception:
-            continue
-    # All RSS feeds failed — use Wikipedia (very reliable fallback)
-    return _wikipedia_paragraph(topic)
-
-
-def generate_practice_paragraph(topic: str = "", difficulty: str = "intermediate") -> str:
+def generate_practice_paragraph(difficulty: str = "b1") -> str:
     """Use Claude to generate a conversational English snippet for translation practice."""
-    diff_map = {
-        "beginner":     "short, simple sentences with common everyday vocabulary (A2 level)",
-        "intermediate": "natural conversational language with some idiomatic expressions (B1-B2 level)",
-        "advanced":     "sophisticated language with complex sentence structures, slang, and nuance (C1 level)",
-    }
-    diff_desc = diff_map.get(difficulty, diff_map["intermediate"])
+    diff_desc = _DIFF_MAP.get(difficulty, _DIFF_MAP["b1"])
     prompt = (
         "Write a short, natural conversational English passage (4-5 sentences) for Portuguese translation practice. "
         "Pick a RANDOM everyday scenario — e.g. ordering at a cafe, asking for directions, "
@@ -608,13 +524,13 @@ def practice_generate_sentence():
 @require_password
 def practice_get_paragraph():
     source     = request.args.get("source", "ai")
-    topic      = request.args.get("topic", "").strip()
-    difficulty = request.args.get("difficulty", "intermediate")
+    difficulty = request.args.get("difficulty", "b1")
     try:
-        if source == "article":
-            text, src_name = fetch_article_paragraph(topic)
+        if source == "conversation":
+            text = generate_conversation(difficulty)
         else:
-            text, src_name = generate_practice_paragraph(topic, difficulty), None
+            text = generate_practice_paragraph(difficulty)
+        src_name = None
         return jsonify({"text": text, "source": src_name})
     except _UserError as e:
         return jsonify({"error": str(e)}), 500
@@ -2127,32 +2043,34 @@ PRACTICE_START_PAGE = """<!doctype html>
     <h2>Choose your text</h2>
     <p>Each sentence becomes a translation challenge into European Portuguese.</p>
 
+    <!-- Difficulty selector (shared by conversation + scenario) -->
+    <div class="field-label" style="margin-bottom:8px;">Difficulty</div>
+    <div class="diff-row">
+      <button type="button" class="diff-btn active" onclick="setDiff('b1')">B1</button>
+      <button type="button" class="diff-btn" onclick="setDiff('b2')">B2</button>
+      <button type="button" class="diff-btn" onclick="setDiff('c1')">C1</button>
+      <button type="button" class="diff-btn" onclick="setDiff('c2')">C2</button>
+    </div>
+
     <!-- Source tabs -->
     <div class="src-tabs">
-      <button type="button" class="src-tab active" onclick="setMode('article')">📰 Real article</button>
-      <button type="button" class="src-tab" onclick="setMode('ai')">🤖 AI-generated</button>
+      <button type="button" class="src-tab active" onclick="setMode('conversation')">💬 Conversation</button>
+      <button type="button" class="src-tab" onclick="setMode('ai')">🤖 Scenario</button>
       <button type="button" class="src-tab" onclick="setMode('paste')">✏️ Paste text</button>
     </div>
 
-    <!-- Article panel -->
-    <div id="panel-article" class="src-panel active">
-      <label class="field-label" for="article-topic">Topic (optional)</label>
-      <input type="text" id="article-topic" class="topic-input" placeholder="e.g. Lisbon, Portuguese cuisine, football…">
-      <button type="button" class="btn btn-outline btn-block" id="fetchBtn" onclick="getParagraph('article')">
-        <span class="btn-label">Fetch article paragraph →</span>
+    <!-- Conversation panel -->
+    <div id="panel-conversation" class="src-panel active">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">Generates a realistic conversation, interview, or podcast excerpt.</p>
+      <button type="button" class="btn btn-outline btn-block" id="convBtn" onclick="getParagraph('conversation')">
+        <span class="btn-label">Generate conversation →</span>
         <span class="spinner" style="display:none;border-color:rgba(0,0,0,.2);border-top-color:var(--green);"></span>
       </button>
     </div>
 
-    <!-- AI panel -->
+    <!-- AI scenario panel -->
     <div id="panel-ai" class="src-panel">
-      <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">Generates a random conversational scenario each time.</p>
-      <div class="field-label" style="margin-bottom:8px;">Difficulty</div>
-      <div class="diff-row">
-        <button type="button" class="diff-btn" onclick="setDiff('beginner')">🌱 Beginner</button>
-        <button type="button" class="diff-btn active" onclick="setDiff('intermediate')">🌿 Intermediate</button>
-        <button type="button" class="diff-btn" onclick="setDiff('advanced')">🌳 Advanced</button>
-      </div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">Generates a random everyday scenario each time.</p>
       <button type="button" class="btn btn-outline btn-block" id="generateBtn" onclick="getParagraph('ai')">
         <span class="btn-label">Generate scenario →</span>
         <span class="spinner" style="display:none;border-color:rgba(0,0,0,.2);border-top-color:var(--green);"></span>
@@ -2171,9 +2089,6 @@ PRACTICE_START_PAGE = """<!doctype html>
           <span>Text to practise</span>
           <button type="button" class="btn-clear" onclick="clearText()">✕ Clear</button>
         </div>
-        <div id="sourceAttr" style="display:none;font-size:12px;color:var(--muted);margin-bottom:6px;">
-          📰 <span id="sourceName"></span>
-        </div>
       </div>
       <textarea id="text" name="text"
         placeholder="Paste your English text here…"
@@ -2186,12 +2101,12 @@ PRACTICE_START_PAGE = """<!doctype html>
 </main>
 <div class="toast" id="toast"></div>
 <script>
-  let currentMode = 'article';
-  let currentDiff = 'intermediate';
+  let currentMode = 'conversation';
+  let currentDiff = 'b1';
 
   function setMode(mode) {
     currentMode = mode;
-    ['article','ai','paste'].forEach((m, i) => {
+    ['conversation','ai','paste'].forEach((m, i) => {
       document.querySelectorAll('.src-tab')[i].classList.toggle('active', m === mode);
     });
     document.querySelectorAll('.src-panel').forEach(p => p.classList.remove('active'));
@@ -2208,7 +2123,7 @@ PRACTICE_START_PAGE = """<!doctype html>
 
   function setDiff(d) {
     currentDiff = d;
-    ['beginner','intermediate','advanced'].forEach((v, i) => {
+    ['b1','b2','c1','c2'].forEach((v, i) => {
       document.querySelectorAll('.diff-btn')[i].classList.toggle('active', v === d);
     });
   }
@@ -2227,16 +2142,13 @@ PRACTICE_START_PAGE = """<!doctype html>
     ta.value = '';
     ta.style.display = 'none';
     document.getElementById('previewWrap').style.display = 'none';
-    document.getElementById('sourceAttr').style.display = 'none';
-    document.getElementById('sourceName').textContent = '';
     document.getElementById('startBtn').disabled = true;
   }
 
   async function getParagraph(source) {
-    const btnId = source === 'article' ? 'fetchBtn' : 'generateBtn';
+    const btnId = source === 'conversation' ? 'convBtn' : 'generateBtn';
     const btn = document.getElementById(btnId);
-    const topic = source === 'article' ? document.getElementById('article-topic').value.trim() : '';
-    const params = new URLSearchParams({ source, topic, difficulty: currentDiff });
+    const params = new URLSearchParams({ source, difficulty: currentDiff });
     btn.querySelector('.btn-label').style.display = 'none';
     btn.querySelector('.spinner').style.display = 'inline-block';
     btn.disabled = true;
@@ -2245,13 +2157,6 @@ PRACTICE_START_PAGE = """<!doctype html>
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
       document.getElementById('text').value = data.text;
-      const sa = document.getElementById('sourceAttr');
-      if (data.source) {
-        document.getElementById('sourceName').textContent = data.source;
-        sa.style.display = 'block';
-      } else {
-        sa.style.display = 'none';
-      }
       showTextarea(false);
     } catch(e) {
       showToast('Error: ' + (e.message || 'Could not fetch text'), 'error');
