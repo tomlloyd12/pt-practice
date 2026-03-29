@@ -41,6 +41,7 @@ from gtts import gTTS
 load_dotenv()
 
 app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", os.urandom(32).hex())
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 ANTHROPIC_API_KEY       = os.getenv("ANTHROPIC_API_KEY", "")
@@ -95,21 +96,62 @@ def log_to_db(type_, english, portuguese, status="", notes=""):
 
 init_db()
 
-# ── Password protection ────────────────────────────────────────────────────────
+# ── Password protection (cookie-based session) ────────────────────────────────
+from flask import session
+
+LOGIN_PAGE = """<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="theme-color" content="#166534">
+<title>PT Practice \u2014 Login</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:#f1f5f9;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;}
+  .login{background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.1);padding:36px 28px;width:100%;max-width:340px;text-align:center;}
+  .login h1{font-size:28px;margin-bottom:4px;}
+  .login p{font-size:14px;color:#64748b;margin-bottom:24px;}
+  input[type=password]{width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:16px;font-family:inherit;outline:none;margin-bottom:14px;transition:border-color .15s;}
+  input[type=password]:focus{border-color:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.12);}
+  button{width:100%;padding:14px;background:#166534;color:white;border:none;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit;}
+  button:hover{background:#14532d;}
+  .err{color:#dc2626;font-size:13px;margin-top:10px;}
+</style></head><body>
+<form class="login" method="post" action="/login">
+  <h1>\U0001f1f5\U0001f1f9</h1>
+  <p>Enter password to continue</p>
+  <input type="password" name="password" placeholder="Password" autofocus autocomplete="current-password">
+  <button type="submit">Log in</button>
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+</form></body></html>"""
+
+
 def require_password(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if not APP_PASSWORD:
-            return f(*args, **kwargs)   # no password set → open (local dev)
-        auth = request.authorization
-        if auth and auth.password == APP_PASSWORD:
             return f(*args, **kwargs)
-        return Response(
-            "Authentication required.",
-            401,
-            {"WWW-Authenticate": 'Basic realm="PT Practice"'},
-        )
+        if session.get("authed"):
+            return f(*args, **kwargs)
+        # For API/AJAX calls, return 401 JSON so JS can redirect
+        if request.is_json or request.headers.get("X-Requested-With"):
+            return jsonify({"error": "Session expired \u2014 please refresh the page."}), 401
+        return redirect("/login?next=" + request.path)
     return decorated
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not APP_PASSWORD:
+        return redirect("/")
+    error = None
+    if request.method == "POST":
+        if request.form.get("password") == APP_PASSWORD:
+            session["authed"] = True
+            session.permanent = True
+            app.permanent_session_lifetime = __import__("datetime").timedelta(days=90)
+            return redirect(request.args.get("next", "/"))
+        error = "Wrong password"
+    return render_template_string(LOGIN_PAGE, error=error)
 
 # Credentials: prefer JSON string in env var (for cloud), fall back to file (for local)
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
@@ -821,6 +863,44 @@ def api_save_flashcards():
     return jsonify({"count": count})
 
 
+@app.route("/api/explain", methods=["POST"])
+@require_password
+def api_explain():
+    """Explain a Portuguese concept and suggest flashcards."""
+    data = request.get_json(force=True) or {}
+    question = (data.get("question") or "").strip()
+    if not question:
+        return jsonify({"error": "Please describe what you want to understand."}), 400
+    prompt = (
+        "You are a European Portuguese language tutor. A student has a question or "
+        "wants to understand a concept. Explain it clearly and concisely, then suggest "
+        "flashcards to help them learn the relevant vocabulary/grammar.\n\n"
+        f"Student says: \"{question}\"\n\n"
+        "Reply with a JSON object with exactly these keys:\n"
+        "- \"explanation\": a clear, helpful explanation (2-5 sentences, use European Portuguese examples with English translations in parentheses)\n"
+        "- \"cards\": an array of flashcard suggestions, each with:\n"
+        "  - \"portuguese\": the Portuguese word, phrase, or expression\n"
+        "  - \"english\": the English meaning\n"
+        "  - \"notes\": brief usage note or context (1 sentence)\n"
+        "  - \"example_sentence\": a short European Portuguese example sentence (max 12 words)\n\n"
+        "Rules:\n"
+        "- Use European Portuguese (not Brazilian)\n"
+        "- For nouns, include the article (o/a)\n"
+        "- Generate 2-6 cards depending on how many concepts are involved\n"
+        "- Return ONLY the JSON object, nothing else"
+    )
+    try:
+        raw = _call_claude(1200, prompt)
+        result = _parse_json_response(raw)
+        if not isinstance(result, dict):
+            return jsonify({"error": "Unexpected response format."}), 500
+        return jsonify(result)
+    except _UserError as exc:
+        return jsonify({"error": str(exc)}), 500
+    except Exception:
+        return jsonify({"error": "Something went wrong \u2014 please try again."}), 500
+
+
 # ── Shared bottom navigation ──────────────────────────────────────────────────
 _BOTTOM_NAV_CSS = """
     .bottom-nav {
@@ -848,6 +928,7 @@ def _bottom_nav_html(active):
         ("🔄", "Translate", "/?tab=translate", "translate"),
         ("✓",  "Check",     "/?tab=check",     "check"),
         ("⚡", "Generate",  "/?tab=generate",   "generate"),
+        ("💡", "Explain",   "/?tab=explain",    "explain"),
         ("📝", "Practice",  "/practice/",       "practice"),
         ("📚", "Cards",     "/flashcards",      "cards"),
     ]
@@ -1305,6 +1386,40 @@ PAGE = """<!doctype html>
     </div>
   </div>
 
+  <!-- ── Explain Panel ── -->
+  <div id="panel-explain" class="panel">
+    <p class="panel-title">Explain</p>
+    <p class="panel-sub">Describe something you don't understand and get an explanation with flashcards.</p>
+    <div class="card">
+      <label class="field-label" for="explainInput">What do you want to understand?</label>
+      <textarea id="explainInput" placeholder="e.g. When do I use ser vs estar? What's the difference between por and para? How does the subjunctive work?" rows="3"></textarea>
+      <button class="btn btn-primary" id="explainBtn" onclick="doExplain()">
+        <span class="btn-label">Explain</span>
+        <div class="spinner"></div>
+      </button>
+      <div class="error-msg" id="explainError"></div>
+    </div>
+    <div id="explainResult" style="display:none;">
+      <div class="card" style="border-left:3px solid var(--green-mid);">
+        <div class="field-label" style="margin-bottom:6px;">Explanation</div>
+        <div id="explainText" style="font-size:15px;line-height:1.6;color:var(--text);"></div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 10px;">
+        <span class="field-label" style="margin:0;">Suggested flashcards</span>
+        <span class="gen-count" id="explainCount">0 selected</span>
+      </div>
+      <div id="explainCards"></div>
+      <button class="btn btn-primary" id="saveExplainBtn" onclick="saveExplainCards()" disabled style="width:100%;justify-content:center;margin-top:8px;">
+        <span class="btn-label">Save to flashcards</span>
+        <div class="spinner"></div>
+      </button>
+      <div id="explainSaved" style="display:none;margin-top:10px;text-align:center;font-size:14px;font-weight:600;color:var(--green);">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-2px"><path d="M20 6L9 17l-5-5"/></svg>
+        <span id="explainSavedText"></span>
+      </div>
+    </div>
+  </div>
+
 </main>
 
 <!-- ── Bottom Navigation ── -->
@@ -1320,6 +1435,10 @@ PAGE = """<!doctype html>
   <button class="nav-item" onclick="switchTab('generate', this)">
     <span class="nav-icon">⚡</span>
     <span>Generate</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('explain', this)">
+    <span class="nav-icon">💡</span>
+    <span>Explain</span>
   </button>
   <a href="/practice/" class="nav-item">
     <span class="nav-icon">📝</span>
@@ -1344,7 +1463,7 @@ PAGE = """<!doctype html>
     const tab = new URLSearchParams(location.search).get('tab');
     if (tab && document.getElementById('panel-' + tab)) {
       const navBtns = document.querySelectorAll('button.nav-item');
-      const map = {translate: 0, check: 1, generate: 2};
+      const map = {translate: 0, check: 1, generate: 2, explain: 3};
       if (map[tab] !== undefined && navBtns[map[tab]]) {
         switchTab(tab, navBtns[map[tab]]);
       }
@@ -1603,6 +1722,120 @@ PAGE = """<!doctype html>
     btn.classList.toggle('loading', on);
   }
 
+  // ── Explain tab ──
+  let explainCardsData = [];
+
+  async function doExplain() {
+    const input = document.getElementById('explainInput').value.trim();
+    if (!input) return;
+    const btn = document.getElementById('explainBtn');
+    const errEl = document.getElementById('explainError');
+    setLoading(btn, true);
+    errEl.classList.remove('show');
+    document.getElementById('explainResult').style.display = 'none';
+    try {
+      const resp = await fetch('/api/explain', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({question: input}),
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      document.getElementById('explainText').textContent = data.explanation;
+      explainCardsData = data.cards || [];
+      renderExplainCards(explainCardsData);
+      document.getElementById('explainResult').style.display = 'block';
+    } catch (e) {
+      showError(errEl, e.message, doExplain);
+    } finally {
+      setLoading(btn, false);
+    }
+  }
+
+  function renderExplainCards(cards) {
+    let html = '';
+    cards.forEach(function(c, i) {
+      var hasSent = c.example_sentence;
+      html += '<div class="gen-card" id="ec-' + i + '"><label>';
+      html += '<input type="checkbox" class="explain-cb" data-idx="' + i + '" checked onchange="updateExplainCount()">';
+      html += '<div style="flex:1">';
+      html += '<div class="gc-pt">' + esc(c.portuguese) + '</div>';
+      html += '<div class="gc-en">' + esc(c.english) + '</div>';
+      if (c.notes) html += '<div class="gc-notes">' + esc(c.notes) + '</div>';
+      html += '</div></label>';
+      if (hasSent) {
+        html += '<div class="gc-example" id="ec-ex-' + i + '">';
+        html += '<span class="gc-sent">' + esc(c.example_sentence) + '</span>';
+        html += '<button class="gc-regen" data-eidx="' + i + '">&#8635;</button>';
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+    document.getElementById('explainCards').innerHTML = html;
+    document.getElementById('explainSaved').style.display = 'none';
+    updateExplainCount();
+  }
+
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.gc-regen[data-eidx]');
+    if (!btn) return;
+    var idx = Number(btn.dataset.eidx);
+    var card = explainCardsData[idx];
+    if (!card) return;
+    var exEl = document.getElementById('ec-ex-' + idx);
+    btn.disabled = true;
+    btn.textContent = '\u2026';
+    fetch('/api/regen-sentence', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({portuguese: card.portuguese}),
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.sentence) {
+        card.example_sentence = data.sentence;
+        exEl.querySelector('.gc-sent').textContent = data.sentence;
+      }
+    }).finally(function() { btn.disabled = false; btn.textContent = '\u21bb'; });
+  });
+
+  function updateExplainCount() {
+    var checked = document.querySelectorAll('.explain-cb:checked').length;
+    document.getElementById('explainCount').textContent = checked + ' selected';
+    document.getElementById('saveExplainBtn').disabled = checked === 0;
+  }
+
+  async function saveExplainCards() {
+    var checked = [...document.querySelectorAll('.explain-cb:checked')];
+    if (!checked.length) return;
+    var items = checked.map(function(cb) {
+      var c = explainCardsData[cb.dataset.idx];
+      return {
+        english: c.english,
+        portuguese: c.portuguese,
+        notes: [c.notes, c.example_sentence].filter(Boolean).join(' \u2014 '),
+      };
+    });
+    var btn = document.getElementById('saveExplainBtn');
+    setLoading(btn, true);
+    try {
+      var resp = await fetch('/api/save-flashcards', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({items: items}),
+      });
+      var data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      document.getElementById('explainSavedText').textContent = data.count + ' card' + (data.count === 1 ? '' : 's') + ' saved!';
+      document.getElementById('explainSaved').style.display = 'block';
+      checked.forEach(function(cb) {
+        cb.checked = false;
+        cb.disabled = true;
+        cb.closest('.gen-card').style.opacity = '.45';
+      });
+      updateExplainCount();
+    } catch (e) {
+      showError(document.getElementById('explainError'), e.message, saveExplainCards);
+    } finally {
+      setLoading(btn, false);
+    }
+  }
+
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && e.target.tagName === 'TEXTAREA') {
       e.preventDefault();
@@ -1703,6 +1936,23 @@ FLASHCARDS_PAGE = """<!doctype html>
     .delete-btn { background: none; border: none; cursor: pointer; color: var(--muted); padding: 6px 14px 6px 6px; line-height: 1; transition: color .15s; flex-shrink: 0; align-self: flex-start; margin-top: 10px; -webkit-tap-highlight-color: transparent; }
     .delete-btn:hover { color: #dc2626; }
 
+    /* ── Example sentence ── */
+    .entry-sentence { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+    .sent-text { font-size: 14px; color: var(--green-dark); font-style: italic; line-height: 1.45; margin-bottom: 6px; min-height: 0; }
+    .sent-text:empty { display: none; }
+    .sent-actions { display: flex; gap: 8px; }
+    .sent-regen-btn { background: none; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--muted); cursor: pointer; padding: 4px 10px; font-family: inherit; transition: border-color .15s, color .15s; }
+    .sent-regen-btn:hover { border-color: var(--green-mid); color: var(--green); }
+    .sent-regen-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .word-picker { margin-top: 8px; }
+    .word-picker-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; display: block; margin-bottom: 6px; }
+    .word-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .word-chip { background: white; border: 1.5px solid var(--border); border-radius: 8px; padding: 5px 12px; font-size: 14px; font-weight: 600; color: var(--text); cursor: pointer; font-family: inherit; transition: all .15s; }
+    .word-chip:hover { border-color: var(--green-mid); color: var(--green); background: var(--green-light); }
+    .word-chip:disabled { opacity: .5; cursor: not-allowed; }
+    .word-chip.loading { background: var(--green-light); border-color: var(--green-mid); color: var(--green); }
+    .word-chip.full { background: var(--green-light); border-color: var(--green-mid); color: var(--green-dark); font-size: 12px; }
+
     /* ── Empty state ── */
     .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
     .empty-icon { font-size: 44px; margin-bottom: 14px; display: block; }
@@ -1791,6 +2041,16 @@ FLASHCARDS_PAGE = """<!doctype html>
         {% if m.explanation %}
         <div class="entry-expl">{{ m.explanation }}</div>
         {% endif %}
+        <div class="entry-sentence" id="sent-{{ m.id }}">
+          <div class="sent-text" id="sent-text-{{ m.id }}"></div>
+          <div class="sent-actions">
+            <button class="sent-regen-btn" data-entry-id="{{ m.id }}" data-phrase="{{ m.portuguese | e }}" title="Generate example sentence">↻ Example sentence</button>
+          </div>
+          <div class="word-picker" id="words-{{ m.id }}" style="display:none;">
+            <span class="word-picker-label">Generate sentence using:</span>
+            <div class="word-chips" id="chips-{{ m.id }}"></div>
+          </div>
+        </div>
       </div>
       <button class="delete-btn" onclick="deleteEntry('{{ m.id }}', this)" title="Delete">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
@@ -1905,6 +2165,64 @@ FLASHCARDS_PAGE = """<!doctype html>
     t.textContent = msg;
     t.className = 'toast ' + type + ' show';
     setTimeout(() => t.classList.remove('show'), 4000);
+  }
+
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.sent-regen-btn');
+    if (btn) showWordPicker(Number(btn.dataset.entryId), btn.dataset.phrase);
+  });
+
+  function showWordPicker(id, phrase) {
+    var picker = document.getElementById('words-' + id);
+    if (picker.style.display === 'block') {
+      picker.style.display = 'none';
+      return;
+    }
+    var chips = document.getElementById('chips-' + id);
+    var words = phrase.split(/\s+/).filter(function(w) { return w.length > 0; });
+    chips.innerHTML = '';
+    // "Full phrase" chip
+    var fullBtn = document.createElement('button');
+    fullBtn.className = 'word-chip full';
+    fullBtn.textContent = 'Full phrase';
+    fullBtn.dataset.entryId = id;
+    fullBtn.dataset.phrase = phrase;
+    fullBtn.onclick = function() { regenSentence(id, phrase); };
+    chips.appendChild(fullBtn);
+    // Individual word chips (only if multi-word)
+    if (words.length > 1) {
+      words.forEach(function(w) {
+        var btn = document.createElement('button');
+        btn.className = 'word-chip';
+        btn.textContent = w;
+        btn.dataset.entryId = id;
+        btn.dataset.phrase = w;
+        btn.onclick = function() { regenSentence(id, w); };
+        chips.appendChild(btn);
+      });
+    }
+    picker.style.display = 'block';
+  }
+
+  async function regenSentence(id, phrase) {
+    var sentText = document.getElementById('sent-text-' + id);
+    var picker = document.getElementById('words-' + id);
+    picker.querySelectorAll('.word-chip').forEach(function(c) { c.disabled = true; });
+    sentText.textContent = 'Generating\u2026';
+    sentText.style.display = 'block';
+    try {
+      var resp = await fetch('/api/regen-sentence', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({portuguese: phrase}),
+      });
+      var data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      sentText.textContent = data.sentence;
+    } catch(e) {
+      sentText.textContent = 'Failed \u2014 tap to retry';
+    } finally {
+      picker.querySelectorAll('.word-chip').forEach(function(c) { c.disabled = false; });
+    }
   }
 </script>
 """ + _bottom_nav_html('cards') + """
