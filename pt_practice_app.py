@@ -901,6 +901,49 @@ def api_explain():
         return jsonify({"error": "Something went wrong \u2014 please try again."}), 500
 
 
+@app.route("/api/explain-followup", methods=["POST"])
+@require_password
+def api_explain_followup():
+    """Answer a follow-up question about a previous explanation."""
+    data = request.get_json(force=True) or {}
+    followup = (data.get("followup") or "").strip()
+    history = data.get("history", [])
+    if not followup:
+        return jsonify({"error": "No question provided."}), 400
+    # Build conversation context
+    messages = []
+    system = (
+        "You are a European Portuguese language tutor. "
+        "Answer follow-up questions clearly and concisely. "
+        "If the follow-up introduces new vocabulary or grammar worth studying, "
+        "include a \"cards\" array in your JSON response (same format as before). "
+        "If no new cards are needed, set \"cards\" to an empty array.\n\n"
+        "Reply with a JSON object with exactly these keys:\n"
+        "- \"explanation\": your answer (2-5 sentences, use European Portuguese examples with English in parentheses)\n"
+        "- \"cards\": array of new flashcard suggestions (can be empty). Each with: "
+        "\"portuguese\", \"english\", \"notes\", \"example_sentence\"\n"
+        "Rules: European Portuguese only. Return ONLY the JSON object."
+    )
+    for h in history:
+        messages.append({"role": "user", "content": h["question"]})
+        messages.append({"role": "assistant", "content": h["answer"]})
+    messages.append({"role": "user", "content": followup})
+    try:
+        resp = claude_client().messages.create(
+            model=CLAUDE_MODEL, max_tokens=1200,
+            system=system, messages=messages,
+        )
+        raw = resp.content[0].text.strip()
+        result = _parse_json_response(raw)
+        if not isinstance(result, dict):
+            return jsonify({"error": "Unexpected response format."}), 500
+        return jsonify(result)
+    except _UserError as exc:
+        return jsonify({"error": str(exc)}), 500
+    except Exception:
+        return jsonify({"error": "Something went wrong \u2014 please try again."}), 500
+
+
 # ── Shared bottom navigation ──────────────────────────────────────────────────
 _BOTTOM_NAV_CSS = """
     .bottom-nav {
@@ -1256,6 +1299,13 @@ PAGE = """<!doctype html>
     }
     .gc-regen:hover { border-color: var(--green-mid); color: var(--green); }
     .gc-regen:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ── Follow-up chat bubbles ── */
+    .ask-input { flex:1; height:36px; padding:0 12px; border:1.5px solid var(--border); border-radius:8px; font-family:inherit; font-size:14px; outline:none; background:#fafafa; color:var(--text); }
+    .ask-input:focus { border-color:var(--green-mid); background:white; box-shadow:0 0 0 3px rgba(22,163,74,.12); }
+    .ask-bubble { border-radius:10px; padding:10px 14px; margin-bottom:8px; font-size:14px; line-height:1.55; }
+    .ask-q { background:var(--green-light); color:var(--green-dark); }
+    .ask-a { background:rgba(0,0,0,.04); color:var(--text); }
   </style>
 </head>
 <body>
@@ -1403,6 +1453,16 @@ PAGE = """<!doctype html>
       <div class="card" style="border-left:3px solid var(--green-mid);">
         <div class="field-label" style="margin-bottom:6px;">Explanation</div>
         <div id="explainText" style="font-size:15px;line-height:1.6;color:var(--text);"></div>
+      </div>
+      <div id="explainThread"></div>
+      <div class="card" style="padding:12px 16px;">
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="followupInput" class="ask-input" placeholder="Ask a follow-up question..." style="flex:1;">
+          <button class="btn btn-primary btn-sm" id="followupBtn" onclick="doFollowup()" style="flex-shrink:0;">
+            <span class="btn-label">Ask</span>
+            <span class="spinner" style="display:none"></span>
+          </button>
+        </div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 10px;">
         <span class="field-label" style="margin:0;">Suggested flashcards</span>
@@ -1724,6 +1784,7 @@ PAGE = """<!doctype html>
 
   // ── Explain tab ──
   let explainCardsData = [];
+  let explainHistory = [];
 
   async function doExplain() {
     const input = document.getElementById('explainInput').value.trim();
@@ -1733,6 +1794,8 @@ PAGE = """<!doctype html>
     setLoading(btn, true);
     errEl.classList.remove('show');
     document.getElementById('explainResult').style.display = 'none';
+    document.getElementById('explainThread').innerHTML = '';
+    explainHistory = [];
     try {
       const resp = await fetch('/api/explain', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -1741,6 +1804,7 @@ PAGE = """<!doctype html>
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
       document.getElementById('explainText').textContent = data.explanation;
+      explainHistory.push({question: input, answer: data.explanation});
       explainCardsData = data.cards || [];
       renderExplainCards(explainCardsData);
       document.getElementById('explainResult').style.display = 'block';
@@ -1751,27 +1815,83 @@ PAGE = """<!doctype html>
     }
   }
 
-  function renderExplainCards(cards) {
-    let html = '';
-    cards.forEach(function(c, i) {
-      var hasSent = c.example_sentence;
-      html += '<div class="gen-card" id="ec-' + i + '"><label>';
-      html += '<input type="checkbox" class="explain-cb" data-idx="' + i + '" checked onchange="updateExplainCount()">';
-      html += '<div style="flex:1">';
-      html += '<div class="gc-pt">' + esc(c.portuguese) + '</div>';
-      html += '<div class="gc-en">' + esc(c.english) + '</div>';
-      if (c.notes) html += '<div class="gc-notes">' + esc(c.notes) + '</div>';
-      html += '</div></label>';
-      if (hasSent) {
-        html += '<div class="gc-example" id="ec-ex-' + i + '">';
-        html += '<span class="gc-sent">' + esc(c.example_sentence) + '</span>';
-        html += '<button class="gc-regen" data-eidx="' + i + '">&#8635;</button>';
-        html += '</div>';
+  async function doFollowup() {
+    var input = document.getElementById('followupInput');
+    var question = input.value.trim();
+    if (!question) return;
+    var btn = document.getElementById('followupBtn');
+    setLoading(btn, true);
+    input.disabled = true;
+    var thread = document.getElementById('explainThread');
+    // Show the question bubble
+    var qDiv = document.createElement('div');
+    qDiv.className = 'ask-bubble ask-q';
+    qDiv.textContent = question;
+    thread.appendChild(qDiv);
+    input.value = '';
+    try {
+      var resp = await fetch('/api/explain-followup', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({followup: question, history: explainHistory}),
+      });
+      var data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      // Show the answer bubble
+      var aDiv = document.createElement('div');
+      aDiv.className = 'ask-bubble ask-a';
+      aDiv.textContent = data.explanation;
+      thread.appendChild(aDiv);
+      explainHistory.push({question: question, answer: data.explanation});
+      // Append any new cards
+      if (data.cards && data.cards.length > 0) {
+        var startIdx = explainCardsData.length;
+        explainCardsData = explainCardsData.concat(data.cards);
+        appendExplainCards(data.cards, startIdx);
       }
+    } catch(e) {
+      var errDiv = document.createElement('div');
+      errDiv.className = 'ask-bubble ask-a';
+      errDiv.style.color = '#dc2626';
+      errDiv.textContent = 'Could not get answer. Try again.';
+      thread.appendChild(errDiv);
+    } finally {
+      setLoading(btn, false);
+      input.disabled = false;
+      input.focus();
+    }
+  }
+
+  function buildExplainCardHtml(c, i) {
+    var hasSent = c.example_sentence;
+    var html = '<div class="gen-card" id="ec-' + i + '"><label>';
+    html += '<input type="checkbox" class="explain-cb" data-idx="' + i + '" checked onchange="updateExplainCount()">';
+    html += '<div style="flex:1">';
+    html += '<div class="gc-pt">' + esc(c.portuguese) + '</div>';
+    html += '<div class="gc-en">' + esc(c.english) + '</div>';
+    if (c.notes) html += '<div class="gc-notes">' + esc(c.notes) + '</div>';
+    html += '</div></label>';
+    if (hasSent) {
+      html += '<div class="gc-example" id="ec-ex-' + i + '">';
+      html += '<span class="gc-sent">' + esc(c.example_sentence) + '</span>';
+      html += '<button class="gc-regen" data-eidx="' + i + '">&#8635;</button>';
       html += '</div>';
-    });
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function renderExplainCards(cards) {
+    var html = '';
+    cards.forEach(function(c, i) { html += buildExplainCardHtml(c, i); });
     document.getElementById('explainCards').innerHTML = html;
     document.getElementById('explainSaved').style.display = 'none';
+    updateExplainCount();
+  }
+
+  function appendExplainCards(newCards, startIdx) {
+    var html = '';
+    newCards.forEach(function(c, i) { html += buildExplainCardHtml(c, startIdx + i); });
+    document.getElementById('explainCards').insertAdjacentHTML('beforeend', html);
     updateExplainCount();
   }
 
@@ -1841,6 +1961,10 @@ PAGE = """<!doctype html>
       e.preventDefault();
       const panel = e.target.closest('.panel');
       panel.querySelector('.btn-primary').click();
+    }
+    if (e.key === 'Enter' && e.target.id === 'followupInput') {
+      e.preventDefault();
+      doFollowup();
     }
   });
 </script>
