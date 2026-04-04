@@ -654,11 +654,21 @@ def generate_flashcard_zip(cards):
     """Generate a ZIP containing flashcards.csv + MP3 audio files."""
     csv_buf = io.StringIO()
     writer = csv.writer(csv_buf)
-    writer.writerow(["English", "Correct Portuguese", "You wrote", "Sound"])
+    writer.writerow(["Front", "Back", "You wrote", "Sound"])
 
     audio_files = {}
     for card in cards:
         pt = card.get("portuguese", "")
+        blanked = card.get("blanked_front", "")
+        english = card.get("english", "")
+        # If the user blanked words, front = blanked phrase, back = full phrase
+        # Otherwise, front = english, back = portuguese (classic mode)
+        if blanked:
+            front = blanked + "\n(" + english + ")"
+            back = pt
+        else:
+            front = english
+            back = pt
         filename = ""
         if pt:
             try:
@@ -669,8 +679,8 @@ def generate_flashcard_zip(cards):
             except Exception as exc:
                 print(f"[Audio error] {exc}")
         writer.writerow([
-            card.get("english", ""),
-            pt,
+            front,
+            back,
             card.get("original", ""),
             f"[sound:{filename}]" if filename else "",
         ])
@@ -872,9 +882,8 @@ def api_explain():
     if not question:
         return jsonify({"error": "Please describe what you want to understand."}), 400
     prompt = (
-        "You are a European Portuguese language tutor. A student has a question or "
-        "wants to understand a concept. Explain it clearly and concisely, then suggest "
-        "flashcards to help them learn the relevant vocabulary/grammar.\n\n"
+        "You are a European Portuguese language tutor. A student has a question. "
+        "Explain it clearly and concisely, then suggest flashcards.\n\n"
         f"Student says: \"{question}\"\n\n"
         "Reply with a JSON object with exactly these keys:\n"
         "- \"explanation\": a clear, helpful explanation (2-5 sentences, use European Portuguese examples with English translations in parentheses)\n"
@@ -883,10 +892,16 @@ def api_explain():
         "  - \"english\": the English meaning\n"
         "  - \"notes\": brief usage note or context (1 sentence)\n"
         "  - \"example_sentence\": a short European Portuguese example sentence (max 12 words)\n\n"
-        "Rules:\n"
+        "CRITICAL rules for cards:\n"
+        "- Every card MUST directly help the student learn the specific thing they asked about. "
+        "Do NOT include tangentially related vocabulary that wasn't part of the question.\n"
+        "- If the student asks about a grammar concept (e.g. subjunctive), each card should "
+        "demonstrate that concept with a different example, not just list loosely related words.\n"
+        "- If the student asks about a specific word/phrase, focus cards on that word's forms, "
+        "usage patterns, and common expressions — not synonyms or neighbours.\n"
         "- Use European Portuguese (not Brazilian)\n"
         "- For nouns, include the article (o/a)\n"
-        "- Generate 2-6 cards depending on how many concepts are involved\n"
+        "- Generate 2-6 cards\n"
         "- Return ONLY the JSON object, nothing else"
     )
     try:
@@ -1455,14 +1470,12 @@ PAGE = """<!doctype html>
         <div id="explainText" style="font-size:15px;line-height:1.6;color:var(--text);"></div>
       </div>
       <div id="explainThread"></div>
-      <div class="card" style="padding:12px 16px;">
-        <div style="display:flex;gap:8px;">
-          <input type="text" id="followupInput" class="ask-input" placeholder="Ask a follow-up question..." style="flex:1;">
-          <button class="btn btn-primary btn-sm" id="followupBtn" onclick="doFollowup()" style="flex-shrink:0;">
-            <span class="btn-label">Ask</span>
-            <span class="spinner" style="display:none"></span>
-          </button>
-        </div>
+      <div style="display:flex;gap:8px;margin:10px 0 14px;">
+        <input type="text" id="followupInput" class="ask-input" placeholder="Ask a follow-up question..." style="flex:1;min-width:0;">
+        <button class="btn btn-primary btn-sm" id="followupBtn" onclick="doFollowup()" style="flex-shrink:0;height:36px;">
+          <span class="btn-label">Ask</span>
+          <span class="spinner" style="display:none"></span>
+        </button>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 10px;">
         <span class="field-label" style="margin:0;">Suggested flashcards</span>
@@ -2046,7 +2059,10 @@ FLASHCARDS_PAGE = """<!doctype html>
     .entry-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
     .entry-date { font-size: 11px; color: var(--muted); margin-left: auto; }
 
-    .entry-pt { font-size: 19px; font-weight: 700; color: var(--green-dark); line-height: 1.3; margin-bottom: 4px; }
+    .entry-pt { font-size: 19px; font-weight: 700; color: var(--green-dark); line-height: 1.6; margin-bottom: 4px; }
+    .pt-word { cursor: pointer; padding: 1px 3px; border-radius: 4px; transition: all .15s; -webkit-tap-highlight-color: transparent; }
+    .pt-word:hover { background: rgba(22,163,74,.08); }
+    .pt-word.blanked { background: var(--green); color: white; border-radius: 5px; padding: 1px 5px; }
     .entry-en { font-size: 14px; color: var(--text); margin-bottom: 6px; line-height: 1.4; }
     .entry-wrong { font-size: 13px; color: var(--muted); margin-top: 4px; }
     .entry-wrong em { font-style: normal; color: #dc2626; }
@@ -2128,7 +2144,7 @@ FLASHCARDS_PAGE = """<!doctype html>
 
 <main>
   <p class="page-title">Your mistakes</p>
-  <p class="page-sub">Select entries to generate Anki flashcards with audio, emailed to you.</p>
+  <p class="page-sub">Select entries to generate Anki flashcards with audio, emailed to you. Tap individual words to blank them out for focused fill-in-the-gap cards.</p>
 
   {% if error %}
   <div class="error-banner">⚠️ Could not load entries: {{ error }}</div>
@@ -2157,7 +2173,7 @@ FLASHCARDS_PAGE = """<!doctype html>
           {% endif %}
           <span class="entry-date">{{ m.timestamp[:10] if m.timestamp else '' }}</span>
         </div>
-        <div class="entry-pt">{{ m.portuguese }}</div>
+        <div class="entry-pt" id="pt-{{ m.id }}">{% for w in m.portuguese.split() %}<span class="pt-word" data-entry="{{ m.id }}" onclick="toggleBlank(this)">{{ w }}</span> {% endfor %}</div>
         <div class="entry-en">{{ m.english }}</div>
         {% if m.original %}
         <div class="entry-wrong">You wrote: <em>{{ m.original }}</em></div>
@@ -2218,6 +2234,21 @@ FLASHCARDS_PAGE = """<!doctype html>
   function selectAll()  { document.querySelectorAll('.cb').forEach(c => c.checked = true);  updateCount(); }
   function selectNone() { document.querySelectorAll('.cb').forEach(c => c.checked = false); updateCount(); }
 
+  function toggleBlank(el) {
+    el.classList.toggle('blanked');
+  }
+
+  function getBlankedPhrase(entryId) {
+    var ptEl = document.getElementById('pt-' + entryId);
+    if (!ptEl) return null;
+    var words = ptEl.querySelectorAll('.pt-word');
+    var hasBlanks = [...words].some(function(w) { return w.classList.contains('blanked'); });
+    if (!hasBlanks) return null;
+    return [...words].map(function(w) {
+      return w.classList.contains('blanked') ? '___' : w.textContent.trim();
+    }).join(' ');
+  }
+
   async function deleteEntry(id, btn) {
     const card = btn.closest('.entry-card');
     card.style.opacity = '0.4';
@@ -2237,9 +2268,16 @@ FLASHCARDS_PAGE = """<!doctype html>
   async function generate() {
     const checked = [...document.querySelectorAll('.cb:checked')];
     if (!checked.length) return;
-    const cards = checked.map(c => ({
-      english: c.dataset.english, portuguese: c.dataset.portuguese, original: c.dataset.original,
-    }));
+    const cards = checked.map(function(c) {
+      var entryId = c.dataset.id;
+      var blanked = getBlankedPhrase(entryId);
+      return {
+        english: c.dataset.english,
+        portuguese: c.dataset.portuguese,
+        original: c.dataset.original,
+        blanked_front: blanked,
+      };
+    });
     const btn = document.getElementById('generateBtn');
     const label = btn.querySelector('.btn-label');
     const spinner = btn.querySelector('.spinner');
