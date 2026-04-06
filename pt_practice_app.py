@@ -654,21 +654,18 @@ def generate_flashcard_zip(cards):
     """Generate a ZIP containing flashcards.csv + MP3 audio files."""
     csv_buf = io.StringIO()
     writer = csv.writer(csv_buf)
-    writer.writerow(["Front", "Back", "You wrote", "Sound"])
+    writer.writerow(["English", "Correct Portuguese", "You wrote", "Sound"])
 
     audio_files = {}
     for card in cards:
         pt = card.get("portuguese", "")
         blanked = card.get("blanked_front", "")
         english = card.get("english", "")
-        # If the user blanked words, front = blanked phrase, back = full phrase
-        # Otherwise, front = english, back = portuguese (classic mode)
+        # Build the English/front column: blanked sentence + english hint if available
         if blanked:
             front = blanked + "\n(" + english + ")"
-            back = pt
         else:
             front = english
-            back = pt
         filename = ""
         if pt:
             try:
@@ -680,7 +677,7 @@ def generate_flashcard_zip(cards):
                 print(f"[Audio error] {exc}")
         writer.writerow([
             front,
-            back,
+            pt,
             card.get("original", ""),
             f"[sound:{filename}]" if filename else "",
         ])
@@ -2194,6 +2191,7 @@ FLASHCARDS_PAGE = """<!doctype html>
         <!-- Step 3: Card created -->
         <div class="fc-step step-done" id="step3-{{ m.id }}" style="display:none;">
           <div class="done-badge">✓ Card ready</div>
+          <div class="sent-preview" id="preview-{{ m.id }}"></div>
           <button class="btn btn-outline btn-sm" onclick="resetCard({{ m.id }})">Redo</button>
         </div>
       </div>
@@ -2325,6 +2323,11 @@ FLASHCARDS_PAGE = """<!doctype html>
       });
       var data = await resp.json();
       if (data.error) throw new Error(data.error);
+      // Update the displayed sentence on the card
+      var card = document.getElementById('entry-' + id);
+      var ptEl = card.querySelector('.entry-pt');
+      if (!ptEl.dataset.original) ptEl.dataset.original = ptEl.textContent;
+      ptEl.textContent = data.sentence;
       showBlankStep(id, data.sentence);
     } catch(e) {
       showToast('Failed to generate sentence', 'error');
@@ -2377,6 +2380,10 @@ FLASHCARDS_PAGE = """<!doctype html>
       blanked_front: front,
     };
 
+    // Show the blanked preview in step 3
+    var preview = document.getElementById('preview-' + id);
+    if (preview) preview.textContent = front;
+
     card.classList.add('card-done');
     showStep(id, 3);
     updateToolbar();
@@ -2387,6 +2394,9 @@ FLASHCARDS_PAGE = """<!doctype html>
     var card = document.getElementById('entry-' + id);
     card.classList.remove('card-done');
     delete readyCards[id];
+    // Restore the original sentence display
+    var ptEl = card.querySelector('.entry-pt');
+    if (ptEl.dataset.original) ptEl.textContent = ptEl.dataset.original;
     var picker = document.getElementById('genpick-' + id);
     if (picker) picker.style.display = 'none';
     showStep(id, 1);
