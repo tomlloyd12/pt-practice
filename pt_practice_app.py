@@ -691,11 +691,19 @@ def generate_flashcard_zip(cards):
         if pt_sentence:
             try:
                 mp3_buf = io.BytesIO()
-                gTTS(text=pt_sentence, lang="pt", tld="pt").write_to_fp(mp3_buf)
-                filename = f"{uuid.uuid4().hex[:8]}.mp3"
-                audio_files[filename] = mp3_buf.getvalue()
+                try:
+                    gTTS(text=pt_sentence, lang="pt", tld="pt").write_to_fp(mp3_buf)
+                except Exception:
+                    mp3_buf = io.BytesIO()
+                    gTTS(text=pt_sentence, lang="pt").write_to_fp(mp3_buf)
+                audio_data = mp3_buf.getvalue()
+                if audio_data:
+                    filename = f"{uuid.uuid4().hex[:8]}.mp3"
+                    audio_files[filename] = audio_data
+                else:
+                    print(f"[Audio warning] Empty audio for: {pt_sentence[:50]}")
             except Exception as exc:
-                print(f"[Audio error] {exc}")
+                print(f"[Audio error] {exc} — sentence: {pt_sentence[:50]}")
         writer.writerow([
             blanked_words,
             pt_sentence,
