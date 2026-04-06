@@ -2395,7 +2395,7 @@ FLASHCARDS_PAGE = """<!doctype html>
 
     var front = [...blankWords].map(function(w) {
       return w.classList.contains('blanked') ? '_____' : w.textContent;
-    }).join(' ');
+    }).join(' ').replace(/_____ (_____ ?)+/g, '_____');
 
     var blankedWordList = [...blankWords].filter(function(w) {
       return w.classList.contains('blanked');
