@@ -654,31 +654,30 @@ def generate_flashcard_zip(cards):
     """Generate a ZIP containing flashcards.csv + MP3 audio files."""
     csv_buf = io.StringIO()
     writer = csv.writer(csv_buf)
-    writer.writerow(["English", "Correct Portuguese", "You wrote", "Sound"])
+    writer.writerow(["PT word", "PT sentence", "PT sentence with blank",
+                      "EN translation of word", "EN translation of sentence", "Sound"])
 
     audio_files = {}
     for card in cards:
-        pt = card.get("portuguese", "")
-        blanked = card.get("blanked_front", "")
+        pt_sentence = card.get("portuguese", "")
+        blanked_front = card.get("blanked_front", "")
+        blanked_words = card.get("blanked_words", "")
         english = card.get("english", "")
-        # Build the English/front column: blanked sentence + english hint if available
-        if blanked:
-            front = blanked + "\n(" + english + ")"
-        else:
-            front = english
         filename = ""
-        if pt:
+        if pt_sentence:
             try:
                 mp3_buf = io.BytesIO()
-                gTTS(text=pt, lang="pt", tld="pt").write_to_fp(mp3_buf)
+                gTTS(text=pt_sentence, lang="pt", tld="pt").write_to_fp(mp3_buf)
                 filename = f"{uuid.uuid4().hex[:8]}.mp3"
                 audio_files[filename] = mp3_buf.getvalue()
             except Exception as exc:
                 print(f"[Audio error] {exc}")
         writer.writerow([
-            front,
-            pt,
-            card.get("original", ""),
+            blanked_words,
+            pt_sentence,
+            blanked_front,
+            english,
+            "",
             f"[sound:{filename}]" if filename else "",
         ])
 
@@ -2371,13 +2370,18 @@ FLASHCARDS_PAGE = """<!doctype html>
     }
 
     var front = [...blankWords].map(function(w) {
-      return w.classList.contains('blanked') ? '___' : w.textContent;
+      return w.classList.contains('blanked') ? '_____' : w.textContent;
     }).join(' ');
+
+    var blankedWordList = [...blankWords].filter(function(w) {
+      return w.classList.contains('blanked');
+    }).map(function(w) { return w.textContent; }).join(' ');
 
     readyCards[id] = {
       english: card.dataset.english,
       portuguese: sentence,
       blanked_front: front,
+      blanked_words: blankedWordList,
     };
 
     // Show the blanked preview in step 3
