@@ -2091,7 +2091,11 @@ FLASHCARDS_PAGE = """<!doctype html>
     .word-chip:hover { border-color: var(--green-mid); color: var(--green); background: var(--green-light); }
     .word-chip:disabled { opacity: .5; cursor: not-allowed; }
     .word-chip.loading { background: var(--green-light); border-color: var(--green-mid); color: var(--green); }
+    .word-chip.selected { background: var(--green); color: white; border-color: var(--green); }
     .word-chip.full { background: var(--green-light); border-color: var(--green-mid); color: var(--green-dark); font-size: 12px; }
+    .sent-go-btn { margin-top: 8px; background: var(--green); color: white; border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer; transition: background .15s; }
+    .sent-go-btn:hover { background: var(--green-dark); }
+    .sent-go-btn:disabled { opacity: .5; cursor: not-allowed; }
 
     /* ── Empty state ── */
     .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
@@ -2187,8 +2191,9 @@ FLASHCARDS_PAGE = """<!doctype html>
             <button class="sent-regen-btn" data-entry-id="{{ m.id }}" data-phrase="{{ m.portuguese | e }}" title="Generate example sentence">↻ Example sentence</button>
           </div>
           <div class="word-picker" id="words-{{ m.id }}" style="display:none;">
-            <span class="word-picker-label">Generate sentence using:</span>
+            <span class="word-picker-label">Tap words to include, then generate:</span>
             <div class="word-chips" id="chips-{{ m.id }}"></div>
+            <button class="sent-go-btn" id="go-{{ m.id }}" style="display:none;">Generate sentence</button>
           </div>
         </div>
       </div>
@@ -2346,35 +2351,74 @@ FLASHCARDS_PAGE = """<!doctype html>
       return;
     }
     var chips = document.getElementById('chips-' + id);
+    var goBtn = document.getElementById('go-' + id);
     var words = phrase.split(/\s+/).filter(function(w) { return w.length > 0; });
     chips.innerHTML = '';
-    // "Full phrase" chip
-    var fullBtn = document.createElement('button');
-    fullBtn.className = 'word-chip full';
-    fullBtn.textContent = 'Full phrase';
-    fullBtn.dataset.entryId = id;
-    fullBtn.dataset.phrase = phrase;
-    fullBtn.onclick = function() { regenSentence(id, phrase); };
-    chips.appendChild(fullBtn);
-    // Individual word chips (only if multi-word)
+
+    function updateGoBtn() {
+      var selected = chips.querySelectorAll('.word-chip.selected');
+      goBtn.style.display = selected.length > 0 ? 'block' : 'none';
+    }
+
+    // "All words" chip
+    var allBtn = document.createElement('button');
+    allBtn.className = 'word-chip full';
+    allBtn.textContent = 'All words';
+    allBtn.onclick = function() {
+      var wordChips = chips.querySelectorAll('.word-chip:not(.full)');
+      var allSelected = [...wordChips].every(function(c) { return c.classList.contains('selected'); });
+      wordChips.forEach(function(c) {
+        if (allSelected) c.classList.remove('selected');
+        else c.classList.add('selected');
+      });
+      allBtn.classList.toggle('selected', !allSelected);
+      updateGoBtn();
+    };
+    chips.appendChild(allBtn);
+
+    // Individual word chips
     if (words.length > 1) {
       words.forEach(function(w) {
         var btn = document.createElement('button');
         btn.className = 'word-chip';
         btn.textContent = w;
-        btn.dataset.entryId = id;
-        btn.dataset.phrase = w;
-        btn.onclick = function() { regenSentence(id, w); };
+        btn.onclick = function() {
+          btn.classList.toggle('selected');
+          // Update "All words" chip state
+          var wordChips = chips.querySelectorAll('.word-chip:not(.full)');
+          var allSel = [...wordChips].every(function(c) { return c.classList.contains('selected'); });
+          allBtn.classList.toggle('selected', allSel);
+          updateGoBtn();
+        };
         chips.appendChild(btn);
       });
+    } else {
+      // Single word — auto-select it
+      allBtn.classList.add('selected');
+      goBtn.style.display = 'block';
     }
+
+    goBtn.onclick = function() {
+      var selected = chips.querySelectorAll('.word-chip.selected:not(.full)');
+      var selectedWords;
+      if (selected.length === 0) {
+        // "All words" was selected alone
+        selectedWords = phrase;
+      } else {
+        selectedWords = [...selected].map(function(c) { return c.textContent; }).join(' ');
+      }
+      regenSentence(id, selectedWords);
+    };
+
     picker.style.display = 'block';
+    updateGoBtn();
   }
 
   async function regenSentence(id, phrase) {
     var sentText = document.getElementById('sent-text-' + id);
-    var picker = document.getElementById('words-' + id);
-    picker.querySelectorAll('.word-chip').forEach(function(c) { c.disabled = true; });
+    var goBtn = document.getElementById('go-' + id);
+    goBtn.disabled = true;
+    goBtn.textContent = 'Generating\u2026';
     sentText.textContent = 'Generating\u2026';
     sentText.style.display = 'block';
     try {
@@ -2388,7 +2432,8 @@ FLASHCARDS_PAGE = """<!doctype html>
     } catch(e) {
       sentText.textContent = 'Failed \u2014 tap to retry';
     } finally {
-      picker.querySelectorAll('.word-chip').forEach(function(c) { c.disabled = false; });
+      goBtn.disabled = false;
+      goBtn.textContent = 'Generate sentence';
     }
   }
 </script>
