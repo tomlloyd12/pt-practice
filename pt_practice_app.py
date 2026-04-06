@@ -650,15 +650,39 @@ def get_flashcard_entries():
     return entries
 
 
+def _translate_sentences(sentences):
+    """Translate a list of Portuguese sentences to English via Claude."""
+    if not sentences:
+        return [""] * len(sentences)
+    numbered = "\n".join(f"{i+1}. {s}" for i, s in enumerate(sentences))
+    prompt = (
+        "Translate each European Portuguese sentence below into natural English. "
+        "Return ONLY a JSON array of strings, one translation per sentence, in the same order.\n\n"
+        + numbered
+    )
+    try:
+        raw = _call_claude(600, prompt)
+        result = _parse_json_response(raw)
+        if isinstance(result, list) and len(result) == len(sentences):
+            return result
+    except Exception as exc:
+        print(f"[Translation error] {exc}")
+    return [""] * len(sentences)
+
+
 def generate_flashcard_zip(cards):
     """Generate a ZIP containing flashcards.csv + MP3 audio files."""
+    # Translate all PT sentences to English in one batch
+    pt_sentences = [card.get("portuguese", "") for card in cards]
+    en_translations = _translate_sentences(pt_sentences)
+
     csv_buf = io.StringIO()
     writer = csv.writer(csv_buf)
     writer.writerow(["PT word", "PT sentence", "PT sentence with blank",
                       "EN translation of word", "EN translation of sentence", "Sound"])
 
     audio_files = {}
-    for card in cards:
+    for i, card in enumerate(cards):
         pt_sentence = card.get("portuguese", "")
         blanked_front = card.get("blanked_front", "")
         blanked_words = card.get("blanked_words", "")
@@ -677,7 +701,7 @@ def generate_flashcard_zip(cards):
             pt_sentence,
             blanked_front,
             english,
-            "",
+            en_translations[i],
             f"[sound:{filename}]" if filename else "",
         ])
 
