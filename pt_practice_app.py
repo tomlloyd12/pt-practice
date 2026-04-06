@@ -2060,9 +2060,9 @@ FLASHCARDS_PAGE = """<!doctype html>
     .entry-date { font-size: 11px; color: var(--muted); margin-left: auto; }
 
     .entry-pt { font-size: 19px; font-weight: 700; color: var(--green-dark); line-height: 1.6; margin-bottom: 4px; }
-    .pt-word { cursor: pointer; padding: 1px 3px; border-radius: 4px; transition: all .15s; -webkit-tap-highlight-color: transparent; }
+    .pt-word { cursor: pointer; padding: 4px 5px; border-radius: 6px; transition: all .15s; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; display: inline-block; margin: 1px 0; }
     .pt-word:hover { background: rgba(22,163,74,.08); }
-    .pt-word.blanked { background: var(--green); color: white; border-radius: 5px; padding: 1px 5px; }
+    .pt-word.blanked { background: var(--green); color: white; padding: 4px 7px; }
     .entry-en { font-size: 14px; color: var(--text); margin-bottom: 6px; line-height: 1.4; }
     .entry-wrong { font-size: 13px; color: var(--muted); margin-top: 4px; }
     .entry-wrong em { font-style: normal; color: #dc2626; }
@@ -2173,7 +2173,7 @@ FLASHCARDS_PAGE = """<!doctype html>
           {% endif %}
           <span class="entry-date">{{ m.timestamp[:10] if m.timestamp else '' }}</span>
         </div>
-        <div class="entry-pt" id="pt-{{ m.id }}">{% for w in m.portuguese.split() %}<span class="pt-word" data-entry="{{ m.id }}" onclick="toggleBlank(this)">{{ w }}</span> {% endfor %}</div>
+        <div class="entry-pt" id="pt-{{ m.id }}">{% for w in m.portuguese.split() %}<span class="pt-word" data-entry="{{ m.id }}">{{ w }}</span> {% endfor %}</div>
         <div class="entry-en">{{ m.english }}</div>
         {% if m.original %}
         <div class="entry-wrong">You wrote: <em>{{ m.original }}</em></div>
@@ -2234,9 +2234,14 @@ FLASHCARDS_PAGE = """<!doctype html>
   function selectAll()  { document.querySelectorAll('.cb').forEach(c => c.checked = true);  updateCount(); }
   function selectNone() { document.querySelectorAll('.cb').forEach(c => c.checked = false); updateCount(); }
 
-  function toggleBlank(el) {
-    el.classList.toggle('blanked');
-  }
+  document.addEventListener('click', function(e) {
+    var word = e.target.closest('.pt-word');
+    if (word) {
+      e.stopPropagation();
+      e.preventDefault();
+      word.classList.toggle('blanked');
+    }
+  });
 
   function getBlankedPhrase(entryId) {
     var ptEl = document.getElementById('pt-' + entryId);
