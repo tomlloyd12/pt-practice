@@ -2044,25 +2044,13 @@ FLASHCARDS_PAGE = """<!doctype html>
       transition: border-color .15s, background .15s;
       overflow: hidden;
     }
-    .entry-card:has(.cb:checked) { border-color: var(--green-mid); background: #f0fdf4; }
+    .entry-card.card-done { border-color: var(--green-mid); background: #f0fdf4; }
 
-    .entry-select {
-      display: flex;
-      align-items: center;
-      padding: 0 4px 0 14px;
-      cursor: pointer;
-      flex-shrink: 0;
-    }
-    .cb { width: 20px; height: 20px; cursor: pointer; accent-color: var(--green); flex-shrink: 0; }
-
-    .entry-body { flex: 1; padding: 14px 12px; min-width: 0; }
+    .entry-body { flex: 1; padding: 14px 16px; min-width: 0; }
     .entry-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
     .entry-date { font-size: 11px; color: var(--muted); margin-left: auto; }
 
-    .entry-pt { font-size: 19px; font-weight: 700; color: var(--green-dark); line-height: 1.6; margin-bottom: 4px; }
-    .pt-word { cursor: pointer; padding: 4px 5px; border-radius: 6px; transition: all .15s; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; display: inline-block; margin: 1px 0; }
-    .pt-word:hover { background: rgba(22,163,74,.08); }
-    .pt-word.blanked { background: var(--green); color: white; padding: 4px 7px; }
+    .entry-pt { font-size: 19px; font-weight: 700; color: var(--green-dark); line-height: 1.3; margin-bottom: 4px; }
     .entry-en { font-size: 14px; color: var(--text); margin-bottom: 6px; line-height: 1.4; }
     .entry-wrong { font-size: 13px; color: var(--muted); margin-top: 4px; }
     .entry-wrong em { font-style: normal; color: #dc2626; }
@@ -2076,26 +2064,26 @@ FLASHCARDS_PAGE = """<!doctype html>
     .delete-btn { background: none; border: none; cursor: pointer; color: var(--muted); padding: 6px 14px 6px 6px; line-height: 1; transition: color .15s; flex-shrink: 0; align-self: flex-start; margin-top: 10px; -webkit-tap-highlight-color: transparent; }
     .delete-btn:hover { color: #dc2626; }
 
-    /* ── Example sentence ── */
-    .entry-sentence { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
-    .sent-text { font-size: 14px; color: var(--green-dark); font-style: italic; line-height: 1.45; margin-bottom: 6px; min-height: 0; }
-    .sent-text:empty { display: none; }
-    .sent-actions { display: flex; gap: 8px; }
-    .sent-regen-btn { background: none; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--muted); cursor: pointer; padding: 4px 10px; font-family: inherit; transition: border-color .15s, color .15s; }
-    .sent-regen-btn:hover { border-color: var(--green-mid); color: var(--green); }
-    .sent-regen-btn:disabled { opacity: .5; cursor: not-allowed; }
-    .word-picker { margin-top: 8px; }
-    .word-picker-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; display: block; margin-bottom: 6px; }
+    /* ── Card creation steps ── */
+    .fc-step { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+    .step-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    .picker-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; display: block; margin-bottom: 6px; }
     .word-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-    .word-chip { background: white; border: 1.5px solid var(--border); border-radius: 8px; padding: 5px 12px; font-size: 14px; font-weight: 600; color: var(--text); cursor: pointer; font-family: inherit; transition: all .15s; }
+    .word-chip { background: white; border: 1.5px solid var(--border); border-radius: 8px; padding: 5px 12px; font-size: 14px; font-weight: 600; color: var(--text); cursor: pointer; font-family: inherit; transition: all .15s; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
     .word-chip:hover { border-color: var(--green-mid); color: var(--green); background: var(--green-light); }
     .word-chip:disabled { opacity: .5; cursor: not-allowed; }
-    .word-chip.loading { background: var(--green-light); border-color: var(--green-mid); color: var(--green); }
     .word-chip.selected { background: var(--green); color: white; border-color: var(--green); }
     .word-chip.full { background: var(--green-light); border-color: var(--green-mid); color: var(--green-dark); font-size: 12px; }
+    .gen-picker { margin-top: 10px; }
     .sent-go-btn { margin-top: 8px; background: var(--green); color: white; border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer; transition: background .15s; }
     .sent-go-btn:hover { background: var(--green-dark); }
     .sent-go-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .blank-words { display: flex; flex-wrap: wrap; gap: 4px; line-height: 1.8; }
+    .bw { cursor: pointer; padding: 3px 6px; border-radius: 5px; font-size: 16px; font-weight: 600; color: var(--green-dark); transition: all .15s; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; display: inline-block; }
+    .bw:hover { background: rgba(22,163,74,.08); }
+    .bw.blanked { background: var(--green); color: white; }
+    .done-badge { display: inline-block; font-size: 13px; font-weight: 700; color: var(--green); margin-right: 8px; }
+    .sent-preview { font-size: 13px; color: var(--muted); font-style: italic; margin-bottom: 6px; }
 
     /* ── Empty state ── */
     .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
@@ -2135,11 +2123,9 @@ FLASHCARDS_PAGE = """<!doctype html>
 {% if mistakes %}
 <div class="toolbar-wrap">
   <div class="toolbar">
-    <button class="btn btn-outline" onclick="selectAll()">Select all</button>
-    <button class="btn btn-outline" onclick="selectNone()">None</button>
-    <span class="count-chip" id="countChip">0 selected</span>
-    <button class="btn btn-primary" id="generateBtn" onclick="generate()" disabled>
-      <span class="btn-label">Generate &amp; Email</span>
+    <span class="count-chip" id="countChip">0 cards ready</span>
+    <button class="btn btn-primary btn-sm" id="emailBtn" onclick="emailCards()" disabled>
+      <span class="btn-label">Email flashcards</span>
       <span class="spinner" style="display:none"></span>
     </button>
   </div>
@@ -2148,7 +2134,7 @@ FLASHCARDS_PAGE = """<!doctype html>
 
 <main>
   <p class="page-title">Your mistakes</p>
-  <p class="page-sub">Select entries to generate Anki flashcards with audio, emailed to you. Tap individual words to blank them out for focused fill-in-the-gap cards.</p>
+  <p class="page-sub">For each entry: choose a sentence, tap words to blank out, then create the card.</p>
 
   {% if error %}
   <div class="error-banner">⚠️ Could not load entries: {{ error }}</div>
@@ -2157,15 +2143,7 @@ FLASHCARDS_PAGE = """<!doctype html>
   {% if mistakes %}
   <div class="entry-list">
     {% for m in mistakes %}
-    <div class="entry-card" id="entry-{{ m.id }}">
-      <label class="entry-select" title="Select">
-        <input type="checkbox" class="cb" onchange="updateCount()"
-          data-id="{{ m.id }}"
-          data-english="{{ m.english }}"
-          data-portuguese="{{ m.portuguese }}"
-          data-original="{{ m.original }}"
-        >
-      </label>
+    <div class="entry-card" id="entry-{{ m.id }}" data-id="{{ m.id }}" data-english="{{ m.english | e }}" data-portuguese="{{ m.portuguese | e }}">
       <div class="entry-body">
         <div class="entry-meta">
           {% if m.type == 'Translation' %}
@@ -2176,8 +2154,11 @@ FLASHCARDS_PAGE = """<!doctype html>
             <span class="type-badge correction">Mistake</span>
           {% endif %}
           <span class="entry-date">{{ m.timestamp[:10] if m.timestamp else '' }}</span>
+          <button class="delete-btn" onclick="deleteEntry('{{ m.id }}', this)" title="Delete" style="margin-left:auto;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          </button>
         </div>
-        <div class="entry-pt" id="pt-{{ m.id }}">{% for w in m.portuguese.split() %}<span class="pt-word" data-entry="{{ m.id }}">{{ w }}</span> {% endfor %}</div>
+        <div class="entry-pt">{{ m.portuguese }}</div>
         <div class="entry-en">{{ m.english }}</div>
         {% if m.original %}
         <div class="entry-wrong">You wrote: <em>{{ m.original }}</em></div>
@@ -2185,21 +2166,37 @@ FLASHCARDS_PAGE = """<!doctype html>
         {% if m.explanation %}
         <div class="entry-expl">{{ m.explanation }}</div>
         {% endif %}
-        <div class="entry-sentence" id="sent-{{ m.id }}">
-          <div class="sent-text" id="sent-text-{{ m.id }}"></div>
-          <div class="sent-actions">
-            <button class="sent-regen-btn" data-entry-id="{{ m.id }}" data-phrase="{{ m.portuguese | e }}" title="Generate example sentence">↻ Example sentence</button>
+
+        <!-- Step 1: Choose sentence source -->
+        <div class="fc-step step-choose" id="step1-{{ m.id }}">
+          <div class="step-btns">
+            <button class="btn btn-outline btn-sm" onclick="useOriginal({{ m.id }})">Use original</button>
+            <button class="btn btn-outline btn-sm" onclick="showGenPicker({{ m.id }})">New sentence</button>
           </div>
-          <div class="word-picker" id="words-{{ m.id }}" style="display:none;">
-            <span class="word-picker-label">Tap words to include, then generate:</span>
-            <div class="word-chips" id="chips-{{ m.id }}"></div>
-            <button class="sent-go-btn" id="go-{{ m.id }}" style="display:none;">Generate sentence</button>
+          <!-- Word picker for generating new sentence -->
+          <div class="gen-picker" id="genpick-{{ m.id }}" style="display:none;">
+            <span class="picker-label">Select words to build sentence around:</span>
+            <div class="word-chips" id="genchips-{{ m.id }}"></div>
+            <button class="sent-go-btn" id="gengo-{{ m.id }}" style="display:none;">Generate sentence</button>
           </div>
         </div>
+
+        <!-- Step 2: Blank words, then create card -->
+        <div class="fc-step step-blank" id="step2-{{ m.id }}" style="display:none;">
+          <span class="picker-label">Tap words to blank out on flashcard:</span>
+          <div class="blank-words" id="blankwords-{{ m.id }}"></div>
+          <div class="step-btns" style="margin-top:8px;">
+            <button class="btn btn-primary btn-sm" onclick="createCard({{ m.id }})">Create card</button>
+            <button class="btn btn-outline btn-sm" onclick="resetCard({{ m.id }})">Back</button>
+          </div>
+        </div>
+
+        <!-- Step 3: Card created -->
+        <div class="fc-step step-done" id="step3-{{ m.id }}" style="display:none;">
+          <div class="done-badge">✓ Card ready</div>
+          <button class="btn btn-outline btn-sm" onclick="resetCard({{ m.id }})">Redo</button>
+        </div>
       </div>
-      <button class="delete-btn" onclick="deleteEntry('{{ m.id }}', this)" title="Delete">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-      </button>
     </div>
     {% endfor %}
   </div>
@@ -2228,102 +2225,233 @@ FLASHCARDS_PAGE = """<!doctype html>
 </div>
 
 <script>
-  let pendingDeleteIds = [];
+  var readyCards = {};
+  var pendingDeleteIds = [];
 
-  function updateCount() {
-    const checked = document.querySelectorAll('.cb:checked').length;
-    document.getElementById('countChip').textContent = checked + ' selected';
-    document.getElementById('generateBtn').disabled = checked === 0;
+  function updateToolbar() {
+    var count = Object.keys(readyCards).length;
+    var chip = document.getElementById('countChip');
+    var btn = document.getElementById('emailBtn');
+    if (chip) chip.textContent = count + ' card' + (count !== 1 ? 's' : '') + ' ready';
+    if (btn) btn.disabled = count === 0;
   }
 
-  function selectAll()  { document.querySelectorAll('.cb').forEach(c => c.checked = true);  updateCount(); }
-  function selectNone() { document.querySelectorAll('.cb').forEach(c => c.checked = false); updateCount(); }
+  function showStep(id, step) {
+    var s1 = document.getElementById('step1-' + id);
+    var s2 = document.getElementById('step2-' + id);
+    var s3 = document.getElementById('step3-' + id);
+    if (s1) s1.style.display = step === 1 ? 'block' : 'none';
+    if (s2) s2.style.display = step === 2 ? 'block' : 'none';
+    if (s3) s3.style.display = step === 3 ? 'block' : 'none';
+  }
 
-  document.addEventListener('click', function(e) {
-    var word = e.target.closest('.pt-word');
-    if (word) {
-      e.stopPropagation();
-      e.preventDefault();
-      word.classList.toggle('blanked');
+  // Step 1a: Use the original Portuguese phrase
+  function useOriginal(id) {
+    var card = document.getElementById('entry-' + id);
+    var pt = card.dataset.portuguese;
+    showBlankStep(id, pt);
+  }
+
+  // Step 1b: Show word picker to generate a new sentence
+  function showGenPicker(id) {
+    var picker = document.getElementById('genpick-' + id);
+    if (picker.style.display === 'block') {
+      picker.style.display = 'none';
+      return;
     }
-  });
+    var card = document.getElementById('entry-' + id);
+    var phrase = card.dataset.portuguese;
+    var chips = document.getElementById('genchips-' + id);
+    var goBtn = document.getElementById('gengo-' + id);
+    var words = phrase.split(/\s+/).filter(function(w) { return w.length > 0; });
+    chips.innerHTML = '';
 
-  function getBlankedPhrase(entryId) {
-    var ptEl = document.getElementById('pt-' + entryId);
-    if (!ptEl) return null;
-    var words = ptEl.querySelectorAll('.pt-word');
-    var hasBlanks = [...words].some(function(w) { return w.classList.contains('blanked'); });
-    if (!hasBlanks) return null;
-    return [...words].map(function(w) {
-      return w.classList.contains('blanked') ? '___' : w.textContent.trim();
-    }).join(' ');
+    function updateGo() {
+      var sel = chips.querySelectorAll('.word-chip.selected');
+      goBtn.style.display = sel.length > 0 ? 'block' : 'none';
+    }
+
+    // "All words" chip
+    var allBtn = document.createElement('button');
+    allBtn.className = 'word-chip full';
+    allBtn.textContent = 'All words';
+    allBtn.onclick = function() {
+      var wc = chips.querySelectorAll('.word-chip:not(.full)');
+      var allSel = [...wc].every(function(c) { return c.classList.contains('selected'); });
+      wc.forEach(function(c) { c.classList.toggle('selected', !allSel); });
+      allBtn.classList.toggle('selected', !allSel);
+      updateGo();
+    };
+    chips.appendChild(allBtn);
+
+    if (words.length > 1) {
+      words.forEach(function(w) {
+        var btn = document.createElement('button');
+        btn.className = 'word-chip';
+        btn.textContent = w;
+        btn.onclick = function() {
+          btn.classList.toggle('selected');
+          var wc = chips.querySelectorAll('.word-chip:not(.full)');
+          allBtn.classList.toggle('selected', [...wc].every(function(c) { return c.classList.contains('selected'); }));
+          updateGo();
+        };
+        chips.appendChild(btn);
+      });
+    } else {
+      allBtn.classList.add('selected');
+      goBtn.style.display = 'block';
+    }
+
+    goBtn.onclick = function() {
+      var sel = chips.querySelectorAll('.word-chip.selected:not(.full)');
+      var focusWords = sel.length > 0
+        ? [...sel].map(function(c) { return c.textContent; }).join(' ')
+        : phrase;
+      generateSentence(id, focusWords);
+    };
+
+    picker.style.display = 'block';
+    updateGo();
   }
 
-  async function deleteEntry(id, btn) {
-    const card = btn.closest('.entry-card');
-    card.style.opacity = '0.4';
+  async function generateSentence(id, focusPhrase) {
+    var goBtn = document.getElementById('gengo-' + id);
+    goBtn.disabled = true;
+    goBtn.textContent = 'Generating\u2026';
     try {
-      const resp = await fetch('/api/log/' + id, { method: 'DELETE' });
-      const data = await resp.json();
+      var resp = await fetch('/api/regen-sentence', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({portuguese: focusPhrase}),
+      });
+      var data = await resp.json();
       if (data.error) throw new Error(data.error);
-      card.remove();
-      updateCount();
-      showToast('Entry deleted', 'success');
-    } catch (e) {
-      card.style.opacity = '1';
-      showToast(e.message || 'Delete failed', 'error');
+      showBlankStep(id, data.sentence);
+    } catch(e) {
+      showToast('Failed to generate sentence', 'error');
+    } finally {
+      goBtn.disabled = false;
+      goBtn.textContent = 'Generate sentence';
     }
   }
 
-  async function generate() {
-    const checked = [...document.querySelectorAll('.cb:checked')];
-    if (!checked.length) return;
-    const cards = checked.map(function(c) {
-      var entryId = c.dataset.id;
-      var blanked = getBlankedPhrase(entryId);
-      return {
-        english: c.dataset.english,
-        portuguese: c.dataset.portuguese,
-        original: c.dataset.original,
-        blanked_front: blanked,
+  // Step 2: Show sentence with tappable words to blank
+  function showBlankStep(id, sentence) {
+    var container = document.getElementById('blankwords-' + id);
+    var words = sentence.split(/\s+/);
+    container.innerHTML = '';
+    container.dataset.sentence = sentence;
+    words.forEach(function(w) {
+      var span = document.createElement('span');
+      span.className = 'bw';
+      span.textContent = w;
+      span.onclick = function(e) {
+        e.stopPropagation();
+        e.preventDefault();
+        span.classList.toggle('blanked');
       };
+      container.appendChild(span);
     });
-    const btn = document.getElementById('generateBtn');
-    const label = btn.querySelector('.btn-label');
-    const spinner = btn.querySelector('.spinner');
+    showStep(id, 2);
+  }
+
+  // Step 2 → 3: Create the card
+  function createCard(id) {
+    var card = document.getElementById('entry-' + id);
+    var container = document.getElementById('blankwords-' + id);
+    var sentence = container.dataset.sentence;
+    var blankWords = container.querySelectorAll('.bw');
+    var hasBlanks = [...blankWords].some(function(w) { return w.classList.contains('blanked'); });
+
+    if (!hasBlanks) {
+      showToast('Tap at least one word to blank out', 'error');
+      return;
+    }
+
+    var front = [...blankWords].map(function(w) {
+      return w.classList.contains('blanked') ? '___' : w.textContent;
+    }).join(' ');
+
+    readyCards[id] = {
+      english: card.dataset.english,
+      portuguese: sentence,
+      blanked_front: front,
+    };
+
+    card.classList.add('card-done');
+    showStep(id, 3);
+    updateToolbar();
+  }
+
+  // Reset back to step 1
+  function resetCard(id) {
+    var card = document.getElementById('entry-' + id);
+    card.classList.remove('card-done');
+    delete readyCards[id];
+    var picker = document.getElementById('genpick-' + id);
+    if (picker) picker.style.display = 'none';
+    showStep(id, 1);
+    updateToolbar();
+  }
+
+  // Email all ready cards
+  async function emailCards() {
+    var cards = Object.values(readyCards);
+    if (!cards.length) return;
+    var btn = document.getElementById('emailBtn');
+    var label = btn.querySelector('.btn-label');
+    var spinner = btn.querySelector('.spinner');
     btn.disabled = true;
     label.style.display = 'none';
     spinner.style.display = 'inline-block';
     try {
-      const resp = await fetch('/api/generate-flashcards', {
+      var resp = await fetch('/api/generate-flashcards', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({cards}),
+        body: JSON.stringify({cards: cards}),
       });
-      const data = await resp.json();
+      var data = await resp.json();
       if (data.error) throw new Error(data.error);
       showToast(data.message, 'success');
-      pendingDeleteIds = checked.map(c => c.dataset.id).filter(Boolean);
+      // Ask to delete from log
+      pendingDeleteIds = Object.keys(readyCards);
       document.getElementById('deleteCount').textContent = pendingDeleteIds.length;
-      setTimeout(() => document.getElementById('deleteModal').classList.add('show'), 600);
-    } catch (e) {
+      setTimeout(function() { document.getElementById('deleteModal').classList.add('show'); }, 600);
+    } catch(e) {
       showToast(e.message || 'Something went wrong', 'error');
     } finally {
       btn.disabled = false;
       label.style.display = '';
       spinner.style.display = 'none';
-      updateCount();
+    }
+  }
+
+  async function deleteEntry(id, btn) {
+    var card = btn.closest('.entry-card');
+    card.style.opacity = '0.4';
+    try {
+      var resp = await fetch('/api/log/' + id, { method: 'DELETE' });
+      var data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      delete readyCards[id];
+      card.remove();
+      updateToolbar();
+      showToast('Entry deleted', 'success');
+    } catch(e) {
+      card.style.opacity = '1';
+      showToast(e.message || 'Delete failed', 'error');
     }
   }
 
   async function confirmDelete() {
     document.getElementById('deleteModal').classList.remove('show');
-    for (const id of pendingDeleteIds) {
-      try { await fetch('/api/log/' + id, { method: 'DELETE' }); } catch (_) {}
-      const card = document.getElementById('entry-' + id);
-      if (card) card.remove();
+    for (var i = 0; i < pendingDeleteIds.length; i++) {
+      var did = pendingDeleteIds[i];
+      try { await fetch('/api/log/' + did, { method: 'DELETE' }); } catch(_) {}
+      var c = document.getElementById('entry-' + did);
+      if (c) c.remove();
+      delete readyCards[did];
     }
     pendingDeleteIds = [];
-    updateCount();
+    updateToolbar();
     showToast('Entries deleted', 'success');
   }
 
@@ -2333,108 +2461,10 @@ FLASHCARDS_PAGE = """<!doctype html>
   }
 
   function showToast(msg, type) {
-    const t = document.getElementById('toast');
+    var t = document.getElementById('toast');
     t.textContent = msg;
     t.className = 'toast ' + type + ' show';
-    setTimeout(() => t.classList.remove('show'), 4000);
-  }
-
-  document.addEventListener('click', function(e) {
-    var btn = e.target.closest('.sent-regen-btn');
-    if (btn) showWordPicker(Number(btn.dataset.entryId), btn.dataset.phrase);
-  });
-
-  function showWordPicker(id, phrase) {
-    var picker = document.getElementById('words-' + id);
-    if (picker.style.display === 'block') {
-      picker.style.display = 'none';
-      return;
-    }
-    var chips = document.getElementById('chips-' + id);
-    var goBtn = document.getElementById('go-' + id);
-    var words = phrase.split(/\s+/).filter(function(w) { return w.length > 0; });
-    chips.innerHTML = '';
-
-    function updateGoBtn() {
-      var selected = chips.querySelectorAll('.word-chip.selected');
-      goBtn.style.display = selected.length > 0 ? 'block' : 'none';
-    }
-
-    // "All words" chip
-    var allBtn = document.createElement('button');
-    allBtn.className = 'word-chip full';
-    allBtn.textContent = 'All words';
-    allBtn.onclick = function() {
-      var wordChips = chips.querySelectorAll('.word-chip:not(.full)');
-      var allSelected = [...wordChips].every(function(c) { return c.classList.contains('selected'); });
-      wordChips.forEach(function(c) {
-        if (allSelected) c.classList.remove('selected');
-        else c.classList.add('selected');
-      });
-      allBtn.classList.toggle('selected', !allSelected);
-      updateGoBtn();
-    };
-    chips.appendChild(allBtn);
-
-    // Individual word chips
-    if (words.length > 1) {
-      words.forEach(function(w) {
-        var btn = document.createElement('button');
-        btn.className = 'word-chip';
-        btn.textContent = w;
-        btn.onclick = function() {
-          btn.classList.toggle('selected');
-          // Update "All words" chip state
-          var wordChips = chips.querySelectorAll('.word-chip:not(.full)');
-          var allSel = [...wordChips].every(function(c) { return c.classList.contains('selected'); });
-          allBtn.classList.toggle('selected', allSel);
-          updateGoBtn();
-        };
-        chips.appendChild(btn);
-      });
-    } else {
-      // Single word — auto-select it
-      allBtn.classList.add('selected');
-      goBtn.style.display = 'block';
-    }
-
-    goBtn.onclick = function() {
-      var selected = chips.querySelectorAll('.word-chip.selected:not(.full)');
-      var selectedWords;
-      if (selected.length === 0) {
-        // "All words" was selected alone
-        selectedWords = phrase;
-      } else {
-        selectedWords = [...selected].map(function(c) { return c.textContent; }).join(' ');
-      }
-      regenSentence(id, selectedWords);
-    };
-
-    picker.style.display = 'block';
-    updateGoBtn();
-  }
-
-  async function regenSentence(id, phrase) {
-    var sentText = document.getElementById('sent-text-' + id);
-    var goBtn = document.getElementById('go-' + id);
-    goBtn.disabled = true;
-    goBtn.textContent = 'Generating\u2026';
-    sentText.textContent = 'Generating\u2026';
-    sentText.style.display = 'block';
-    try {
-      var resp = await fetch('/api/regen-sentence', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({portuguese: phrase}),
-      });
-      var data = await resp.json();
-      if (data.error) throw new Error(data.error);
-      sentText.textContent = data.sentence;
-    } catch(e) {
-      sentText.textContent = 'Failed \u2014 tap to retry';
-    } finally {
-      goBtn.disabled = false;
-      goBtn.textContent = 'Generate sentence';
-    }
+    setTimeout(function() { t.classList.remove('show'); }, 4000);
   }
 </script>
 """ + _bottom_nav_html('cards') + """
