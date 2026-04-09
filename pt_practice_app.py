@@ -245,8 +245,10 @@ def _call_claude(max_tokens: int, prompt: str, retries: int = 2) -> str:
                 last_exc = exc
             else:
                 # 4xx errors (bad request, auth) won't fix with a retry
+                print(f"[Claude API {exc.status_code}] {exc}")
                 raise _UserError("Something went wrong — please try again.")
         except Exception as exc:
+            print(f"[Claude API unexpected] {type(exc).__name__}: {exc}")
             raise _UserError("Something went wrong — please try again.")
         # Wait briefly before retry
         if attempt < retries:
@@ -285,6 +287,7 @@ def _parse_json_response(raw: str):
                 return json.loads(text[i:])
             except json.JSONDecodeError:
                 break
+    print(f"[JSON parse failure] Raw response ({len(text)} chars): {text[:500]}")
     raise _UserError("Got an unexpected response — please try again.")
 
 
