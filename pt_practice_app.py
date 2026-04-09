@@ -837,7 +837,7 @@ def api_suggest_flashcards():
         "- Return ONLY the JSON array, nothing else"
     )
     try:
-        raw = _call_claude(600, prompt)
+        raw = _call_claude(2000, prompt)
         cards = _parse_json_response(raw)
         if not isinstance(cards, list):
             cards = [cards]
@@ -879,7 +879,7 @@ def api_parse_notes():
         "- Return ONLY the JSON array, nothing else"
     )
     try:
-        raw = _call_claude(1200, prompt)
+        raw = _call_claude(4000, prompt)
         cards = _parse_json_response(raw)
         if not isinstance(cards, list):
             cards = [cards]
@@ -958,7 +958,7 @@ def api_explain():
         "- Return ONLY the JSON object, nothing else"
     )
     try:
-        raw = _call_claude(1200, prompt)
+        raw = _call_claude(3000, prompt)
         result = _parse_json_response(raw)
         if not isinstance(result, dict):
             return jsonify({"error": "Unexpected response format."}), 500
