@@ -1023,20 +1023,21 @@ def api_explain_followup():
 _BOTTOM_NAV_CSS = """
     .bottom-nav {
       position: fixed; bottom: 0; left: 0; right: 0;
-      height: calc(60px + env(safe-area-inset-bottom));
+      height: calc(68px + env(safe-area-inset-bottom));
       background: white; border-top: 1px solid #e2e8f0;
       display: flex; z-index: 100;
       padding-bottom: env(safe-area-inset-bottom);
     }
     .nav-item {
       flex: 1; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; gap: 2px;
+      align-items: center; justify-content: center; gap: 3px;
       border: none; background: none; cursor: pointer;
-      color: #94a3b8; font-size: 10px; font-weight: 600;
-      text-decoration: none; padding: 6px 4px; font-family: inherit;
+      color: #94a3b8; font-size: 11px; font-weight: 600;
+      text-decoration: none; padding: 10px 4px; font-family: inherit;
       transition: color .15s; -webkit-tap-highlight-color: transparent;
+      min-height: 52px;
     }
-    .nav-item .nav-icon { font-size: 22px; line-height: 1; }
+    .nav-item .nav-icon { font-size: 24px; line-height: 1; }
     .nav-item.active { color: #166534; }
 """
 
@@ -2155,9 +2156,9 @@ FLASHCARDS_PAGE = """<!doctype html>
     .error-banner { background: var(--red-light); border: 1.5px solid #fca5a5; border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; font-size: 14px; color: #dc2626; }
 
     /* ── Modal ── */
-    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; align-items: flex-end; justify-content: center; padding: 0; }
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 200; align-items: flex-end; justify-content: center; padding: 0; }
     .modal-overlay.show { display: flex; }
-    .modal { background: white; border-radius: 20px 20px 0 0; padding: 28px 24px calc(28px + env(safe-area-inset-bottom)); width: 100%; max-width: 480px; box-shadow: 0 -8px 40px rgba(0,0,0,.15); }
+    .modal { background: white; border-radius: 20px 20px 0 0; padding: 28px 24px calc(80px + env(safe-area-inset-bottom)); width: 100%; max-width: 480px; box-shadow: 0 -8px 40px rgba(0,0,0,.15); }
     .modal h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
     .modal p { font-size: 14px; color: var(--muted); margin-bottom: 22px; line-height: 1.6; }
     .modal-actions { display: flex; gap: 10px; }
