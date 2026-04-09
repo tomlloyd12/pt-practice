@@ -258,14 +258,34 @@ def _call_claude(max_tokens: int, prompt: str, retries: int = 2) -> str:
 
 def _parse_json_response(raw: str):
     """Parse a JSON response from Claude, stripping markdown fences if present."""
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.lower().startswith("json"):
-            raw = raw[4:]
+    text = raw.strip()
+    # Strip markdown code fences (```json ... ``` or ``` ... ```)
+    if "```" in text:
+        # Find content between first ``` and last ```
+        parts = text.split("```")
+        # parts[0] is before first fence, parts[1] is inside, parts[2+] after
+        for part in parts[1:]:
+            candidate = part.strip()
+            if candidate.lower().startswith("json"):
+                candidate = candidate[4:].strip()
+            # Try to parse each candidate block
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+    # Try parsing the raw text directly
     try:
-        return json.loads(raw.strip())
+        return json.loads(text)
     except json.JSONDecodeError:
-        raise _UserError("Got an unexpected response — please try again.")
+        pass
+    # Last resort: find first [ or { and parse from there
+    for i, ch in enumerate(text):
+        if ch in "[{":
+            try:
+                return json.loads(text[i:])
+            except json.JSONDecodeError:
+                break
+    raise _UserError("Got an unexpected response — please try again.")
 
 
 def translate_to_portuguese(text: str) -> str:
