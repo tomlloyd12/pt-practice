@@ -647,7 +647,7 @@ def get_flashcard_entries():
             cur.execute("""
                 SELECT id, timestamp, type, english, portuguese, status, notes
                 FROM logs
-                WHERE type = 'Translation' OR status = 'Incorrect'
+                WHERE type IN ('Translation', 'Generated') OR status = 'Incorrect'
                 ORDER BY timestamp DESC
             """)
             rows = cur.fetchall()
