@@ -2236,6 +2236,7 @@ FLASHCARDS_PAGE = """<!doctype html>
 
         <!-- Step 2: Blank words, then create card -->
         <div class="fc-step step-blank" id="step2-{{ m.id }}" style="display:none;">
+          <div class="sent-preview" id="sent-{{ m.id }}"></div>
           <span class="picker-label">Tap words to blank out on flashcard:</span>
           <div class="blank-words" id="blankwords-{{ m.id }}"></div>
           <div class="step-btns" style="margin-top:8px;">
@@ -2395,6 +2396,8 @@ FLASHCARDS_PAGE = """<!doctype html>
 
   // Step 2: Show sentence with tappable words to blank
   function showBlankStep(id, sentence) {
+    var sentEl = document.getElementById('sent-' + id);
+    if (sentEl) sentEl.textContent = sentence;
     var container = document.getElementById('blankwords-' + id);
     var words = sentence.split(/\s+/);
     container.innerHTML = '';
