@@ -657,10 +657,16 @@ def get_flashcard_entries():
         notes = row["notes"] or ""
         original = ""
         explanation = notes
+        example_sentence = ""
         if notes.startswith("You wrote: "):
             parts = notes[len("You wrote: "):].split(" — ", 1)
             original = parts[0]
             explanation = parts[1] if len(parts) > 1 else ""
+        elif row["type"] == "Generated" and " — " in notes:
+            # Generated cards store "usage note — example sentence"
+            parts = notes.split(" — ", 1)
+            explanation = parts[0]
+            example_sentence = parts[1] if len(parts) > 1 else ""
         entries.append({
             "id": str(row["id"]),
             "timestamp": str(row["timestamp"])[:16],
@@ -669,6 +675,7 @@ def get_flashcard_entries():
             "portuguese": row["portuguese"] or "",
             "original": original,
             "explanation": explanation,
+            "example_sentence": example_sentence,
         })
     return entries
 
@@ -2105,6 +2112,7 @@ FLASHCARDS_PAGE = """<!doctype html>
 
     .entry-pt { font-size: 19px; font-weight: 700; color: var(--green-dark); line-height: 1.3; margin-bottom: 4px; }
     .entry-en { font-size: 14px; color: var(--text); margin-bottom: 6px; line-height: 1.4; }
+    .entry-example { font-size: 14px; color: var(--green-dark); font-style: italic; margin-top: 4px; line-height: 1.4; }
     .entry-wrong { font-size: 13px; color: var(--muted); margin-top: 4px; }
     .entry-wrong em { font-style: normal; color: #dc2626; }
     .entry-expl { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.4; border-top: 1px solid var(--border); padding-top: 4px; margin-top: 6px; }
@@ -2196,13 +2204,15 @@ FLASHCARDS_PAGE = """<!doctype html>
   {% if mistakes %}
   <div class="entry-list">
     {% for m in mistakes %}
-    <div class="entry-card" id="entry-{{ m.id }}" data-id="{{ m.id }}" data-english="{{ m.english | e }}" data-portuguese="{{ m.portuguese | e }}">
+    <div class="entry-card" id="entry-{{ m.id }}" data-id="{{ m.id }}" data-english="{{ m.english | e }}" data-portuguese="{{ m.portuguese | e }}" {% if m.example_sentence %}data-example="{{ m.example_sentence | e }}"{% endif %}>
       <div class="entry-body">
         <div class="entry-meta">
           {% if m.type == 'Translation' %}
             <span class="type-badge translation">Translate</span>
           {% elif m.type == 'Practice' %}
             <span class="type-badge practice">Practice</span>
+          {% elif m.type == 'Generated' %}
+            <span class="type-badge" style="background:#e0e7ff;color:#4338ca;">Generate</span>
           {% else %}
             <span class="type-badge correction">Mistake</span>
           {% endif %}
@@ -2213,6 +2223,9 @@ FLASHCARDS_PAGE = """<!doctype html>
         </div>
         <div class="entry-pt">{{ m.portuguese }}</div>
         <div class="entry-en">{{ m.english }}</div>
+        {% if m.example_sentence %}
+        <div class="entry-example">{{ m.example_sentence }}</div>
+        {% endif %}
         {% if m.original %}
         <div class="entry-wrong">You wrote: <em>{{ m.original }}</em></div>
         {% endif %}
@@ -2300,10 +2313,10 @@ FLASHCARDS_PAGE = """<!doctype html>
     if (s3) s3.style.display = step === 3 ? 'block' : 'none';
   }
 
-  // Step 1a: Use the original Portuguese phrase
+  // Step 1a: Use the original Portuguese phrase (or example sentence if available)
   function useOriginal(id) {
     var card = document.getElementById('entry-' + id);
-    var pt = card.dataset.portuguese;
+    var pt = card.dataset.example || card.dataset.portuguese;
     showBlankStep(id, pt);
   }
 
