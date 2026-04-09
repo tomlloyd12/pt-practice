@@ -661,10 +661,11 @@ def _translate_sentences(sentences):
         + numbered
     )
     try:
-        raw = _call_claude(600, prompt)
+        raw = _call_claude(600, prompt, retries=0)
         result = _parse_json_response(raw)
         if isinstance(result, list) and len(result) == len(sentences):
             return result
+        print(f"[Translation warning] Got {type(result)} with length {len(result) if isinstance(result, list) else 'N/A'}, expected list of {len(sentences)}")
     except Exception as exc:
         print(f"[Translation error] {exc}")
     return [""] * len(sentences)
@@ -782,6 +783,7 @@ def api_generate_flashcards():
             return jsonify({"error": "No RESEND_API_KEY set — please add it in Render environment variables."}), 500
 
     except Exception as exc:
+        print(f"[Flashcard error] {type(exc).__name__}: {exc}")
         return jsonify({"error": str(exc)}), 500
 
 
