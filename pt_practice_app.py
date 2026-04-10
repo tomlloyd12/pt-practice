@@ -703,7 +703,28 @@ def _translate_sentences(sentences):
 
 def generate_flashcard_zip(cards):
     """Generate a ZIP containing flashcards.csv + MP3 audio files."""
-    # Translate all PT sentences to English in one batch
+    # Generate audio first (fast network calls)
+    audio_files = {}
+    filenames = []
+    for card in cards:
+        pt_sentence = card.get("portuguese", "")
+        filename = ""
+        if pt_sentence:
+            try:
+                mp3_buf = io.BytesIO()
+                gTTS(text=pt_sentence, lang="pt").write_to_fp(mp3_buf)
+                audio_data = mp3_buf.getvalue()
+                if audio_data:
+                    filename = f"{uuid.uuid4().hex[:8]}.mp3"
+                    audio_files[filename] = audio_data
+                    print(f"[Audio OK] {filename} ({len(audio_data)} bytes) for: {pt_sentence[:50]}")
+                else:
+                    print(f"[Audio warning] Empty audio for: {pt_sentence[:50]}")
+            except Exception as exc:
+                print(f"[Audio error] {exc} — sentence: {pt_sentence[:50]}")
+        filenames.append(filename)
+
+    # Translate sentences to English (best-effort, won't block if it fails)
     pt_sentences = [card.get("portuguese", "") for card in cards]
     en_translations = _translate_sentences(pt_sentences)
 
@@ -712,36 +733,14 @@ def generate_flashcard_zip(cards):
     writer.writerow(["PT word", "PT sentence", "PT sentence with blank",
                       "EN translation of word", "EN translation of sentence", "Sound"])
 
-    audio_files = {}
     for i, card in enumerate(cards):
-        pt_sentence = card.get("portuguese", "")
-        blanked_front = card.get("blanked_front", "")
-        blanked_words = card.get("blanked_words", "")
-        english = card.get("english", "")
-        filename = ""
-        if pt_sentence:
-            try:
-                mp3_buf = io.BytesIO()
-                try:
-                    gTTS(text=pt_sentence, lang="pt", tld="pt").write_to_fp(mp3_buf)
-                except Exception:
-                    mp3_buf = io.BytesIO()
-                    gTTS(text=pt_sentence, lang="pt").write_to_fp(mp3_buf)
-                audio_data = mp3_buf.getvalue()
-                if audio_data:
-                    filename = f"{uuid.uuid4().hex[:8]}.mp3"
-                    audio_files[filename] = audio_data
-                else:
-                    print(f"[Audio warning] Empty audio for: {pt_sentence[:50]}")
-            except Exception as exc:
-                print(f"[Audio error] {exc} — sentence: {pt_sentence[:50]}")
         writer.writerow([
-            blanked_words,
-            pt_sentence,
-            blanked_front,
-            english,
+            card.get("blanked_words", ""),
+            card.get("portuguese", ""),
+            card.get("blanked_front", ""),
+            card.get("english", ""),
             en_translations[i],
-            f"[sound:{filename}]" if filename else "",
+            f"[sound:{filenames[i]}]" if filenames[i] else "",
         ])
 
     zip_buf = io.BytesIO()
@@ -805,6 +804,7 @@ def api_generate_flashcards():
             return jsonify({"error": "No cards selected."}), 400
 
         zip_data = generate_flashcard_zip(cards)
+        print(f"[Flashcard ZIP] {len(zip_data)} bytes for {len(cards)} cards")
 
         if RESEND_API_KEY:
             send_flashcard_email(zip_data, len(cards))
