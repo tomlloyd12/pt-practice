@@ -794,6 +794,12 @@ def delete_log(log_id):
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/quiz")
+@require_password
+def quiz_page():
+    return render_template_string(QUIZ_PAGE)
+
+
 @app.route("/api/generate-flashcards", methods=["POST"])
 @require_password
 def api_generate_flashcards():
@@ -1023,21 +1029,21 @@ def api_explain_followup():
 _BOTTOM_NAV_CSS = """
     .bottom-nav {
       position: fixed; bottom: 0; left: 0; right: 0;
-      height: calc(68px + env(safe-area-inset-bottom));
+      height: calc(62px + env(safe-area-inset-bottom));
       background: white; border-top: 1px solid #e2e8f0;
       display: flex; z-index: 100;
       padding-bottom: env(safe-area-inset-bottom);
     }
     .nav-item {
       flex: 1; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; gap: 3px;
+      align-items: center; justify-content: center; gap: 2px;
       border: none; background: none; cursor: pointer;
-      color: #94a3b8; font-size: 11px; font-weight: 600;
-      text-decoration: none; padding: 10px 4px; font-family: inherit;
+      color: #94a3b8; font-size: 10px; font-weight: 600;
+      text-decoration: none; padding: 8px 2px; font-family: inherit;
       transition: color .15s; -webkit-tap-highlight-color: transparent;
-      min-height: 52px;
+      min-height: 48px;
     }
-    .nav-item .nav-icon { font-size: 24px; line-height: 1; }
+    .nav-item .nav-icon { font-size: 20px; line-height: 1; }
     .nav-item.active { color: #166534; }
 """
 
@@ -1050,6 +1056,7 @@ def _bottom_nav_html(active):
         ("💡", "Explain",   "/?tab=explain",    "explain"),
         ("📝", "Practice",  "/practice/",       "practice"),
         ("📚", "Cards",     "/flashcards",      "cards"),
+        ("🗺", "Quiz",      "/quiz",            "quiz"),
     ]
     nav = '<nav class="bottom-nav">'
     for icon, label, href, key in items:
@@ -2556,6 +2563,414 @@ FLASHCARDS_PAGE = """<!doctype html>
   }
 </script>
 """ + _bottom_nav_html('cards') + """
+</body>
+</html>
+"""
+
+# ── Quiz Page ─────────────────────────────────────────────────────────────────
+QUIZ_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#166534">
+  <title>PT Practice — Lisbon Quiz</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --green-dark: #14532d; --green: #166534; --green-mid: #16a34a;
+      --green-light: #dcfce7; --red-light: #fee2e2; --amber-light: #fef9c3;
+      --bg: #f1f5f9; --surface: #fff; --border: #e2e8f0;
+      --text: #0f172a; --muted: #64748b;
+      --shadow: 0 1px 3px rgba(0,0,0,.07), 0 4px 16px rgba(0,0,0,.06);
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+    header { background: var(--green); padding: 0 20px; padding-top: env(safe-area-inset-top); display: flex; align-items: center; height: calc(56px + env(safe-area-inset-top)); gap: 10px; position: sticky; top: 0; z-index: 50; }
+    header h1 { color: white; font-size: 18px; font-weight: 800; }
+""" + _BOTTOM_NAV_CSS + """
+
+    main { padding: 16px; max-width: 500px; margin: 0 auto; }
+
+    /* ── Mode tabs ── */
+    .mode-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+    .mode-tab {
+      flex: 1; padding: 10px 8px; border: 1.5px solid var(--border); border-radius: 10px;
+      background: white; font-size: 13px; font-weight: 700; font-family: inherit;
+      cursor: pointer; transition: all .15s; color: var(--text);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .mode-tab.active { background: var(--green); color: white; border-color: var(--green); }
+
+    /* ── Score bar ── */
+    .score-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 13px; font-weight: 700; color: var(--muted); }
+    .score-val { color: var(--green); }
+
+    /* ── Quiz card ── */
+    .quiz-card {
+      background: white; border-radius: 14px; box-shadow: var(--shadow);
+      padding: 16px; margin-bottom: 14px;
+    }
+    .prompt { font-size: 15px; font-weight: 700; margin-bottom: 12px; text-align: center; }
+    .prompt strong { color: var(--green-dark); font-size: 18px; }
+
+    /* ── SVG map ── */
+    .svg-wrap { width: 100%; aspect-ratio: 5 / 6; margin-bottom: 14px; }
+    .svg-wrap svg { width: 100%; height: 100%; }
+    .bairro {
+      fill: #e2e8f0; stroke: white; stroke-width: 2;
+      cursor: pointer; transition: fill .2s;
+    }
+    .bairro:hover { fill: #cbd5e1; }
+    .bairro.highlighted { fill: #fbbf24; }
+    .bairro.correct { fill: #86efac; }
+    .bairro.wrong { fill: #fca5a5; }
+    .bairro.revealed { fill: #93c5fd; }
+    .bairro-label {
+      font-size: 9px; font-weight: 700; text-anchor: middle;
+      fill: #334155; pointer-events: none; opacity: 0; transition: opacity .3s;
+    }
+    .bairro-label.visible { opacity: 1; }
+    .river { fill: #bde0fe; }
+
+    /* ── Options grid ── */
+    .options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .option-btn {
+      padding: 12px 8px; border: 1.5px solid var(--border); border-radius: 10px;
+      background: white; font-size: 14px; font-weight: 600; font-family: inherit;
+      cursor: pointer; transition: all .15s; color: var(--text);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .option-btn:active { transform: scale(.97); }
+    .option-btn.correct { background: var(--green-light); border-color: var(--green-mid); color: var(--green-dark); }
+    .option-btn.wrong { background: var(--red-light); border-color: #f87171; color: #dc2626; }
+    .option-btn:disabled { cursor: default; opacity: .7; }
+
+    /* ── Feedback ── */
+    .feedback {
+      text-align: center; padding: 10px; margin-top: 10px; border-radius: 10px;
+      font-size: 14px; font-weight: 700;
+    }
+    .feedback.correct-fb { background: var(--green-light); color: var(--green-dark); }
+    .feedback.wrong-fb { background: var(--red-light); color: #dc2626; }
+    .feedback.hidden { display: none; }
+
+    /* ── Buttons ── */
+    .btn { height: 44px; padding: 0 20px; border: none; border-radius: 10px; font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 7px; transition: background .15s; -webkit-tap-highlight-color: transparent; width: 100%; }
+    .btn-primary { background: var(--green); color: white; }
+    .btn-primary:hover { background: var(--green-dark); }
+    .btn-outline { background: white; color: var(--text); border: 1.5px solid var(--border); }
+    .btn-outline:hover { background: var(--bg); }
+
+    /* ── Results ── */
+    .results { text-align: center; padding: 30px 20px; }
+    .results-score { font-size: 48px; font-weight: 800; color: var(--green); }
+    .results-label { font-size: 14px; color: var(--muted); margin-top: 4px; }
+    .results-msg { font-size: 16px; font-weight: 600; margin-top: 14px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+
+<header>
+  <span style="font-size:22px">🗺</span>
+  <h1>Lisbon Bairros</h1>
+</header>
+
+<main>
+  <div class="mode-tabs">
+    <button class="mode-tab active" id="modeMap" onclick="setMode('map')">Map → Name</button>
+    <button class="mode-tab" id="modeName" onclick="setMode('name')">Name → Map</button>
+  </div>
+
+  <div class="score-bar">
+    <span id="progress">1 / 20</span>
+    <span>Score: <span class="score-val" id="score">0</span></span>
+  </div>
+
+  <div class="quiz-card">
+    <p class="prompt" id="prompt">Which neighbourhood is highlighted?</p>
+
+    <div class="svg-wrap">
+      <svg viewBox="0 0 500 600" id="lisbonMap">
+        <!-- River Tagus -->
+        <path class="river" d="M0,520 Q60,500 120,510 Q200,530 280,510 Q360,500 440,515 Q480,520 500,510 L500,600 L0,600 Z" />
+
+        <!-- Neighbourhoods — west to east, north to south -->
+        <polygon data-bairro="avenidas-novas" class="bairro" points="150,30 350,30 350,120 150,120" />
+        <polygon data-bairro="arroios" class="bairro" points="350,30 450,30 450,150 350,150 350,120" />
+        <polygon data-bairro="campo-de-ourique" class="bairro" points="50,120 150,120 150,240 100,260 50,250" />
+        <polygon data-bairro="avenidas-novas" class="bairro" style="display:none" />
+        <polygon data-bairro="principe-real" class="bairro" points="150,120 230,120 230,200 150,200" />
+        <polygon data-bairro="penha-de-franca" class="bairro" points="350,150 450,150 450,260 380,280 350,260" />
+        <polygon data-bairro="estrela" class="bairro" points="50,250 100,260 150,240 150,340 100,360 50,350" />
+        <polygon data-bairro="bairro-alto" class="bairro" points="150,200 230,200 230,290 150,290" />
+        <polygon data-bairro="mouraria" class="bairro" points="230,120 350,120 350,220 300,230 230,220" />
+        <polygon data-bairro="graca" class="bairro" points="300,230 350,220 350,260 380,280 380,340 330,360 300,340" />
+        <polygon data-bairro="chiado" class="bairro" points="150,290 230,290 230,370 200,380 150,370" />
+        <polygon data-bairro="baixa" class="bairro" points="230,220 300,230 300,340 280,380 230,370 230,290" />
+        <polygon data-bairro="lapa" class="bairro" points="50,350 100,360 150,340 150,370 130,420 100,440 50,430" />
+        <polygon data-bairro="santos" class="bairro" points="130,420 150,370 200,380 200,440 180,470 140,470" />
+        <polygon data-bairro="alfama" class="bairro" points="280,380 300,340 330,360 380,340 380,410 340,450 280,440" />
+        <polygon data-bairro="beato" class="bairro" points="380,280 450,260 450,370 420,400 380,410 380,340" />
+        <polygon data-bairro="alcantara" class="bairro" points="50,430 100,440 140,470 120,510 50,500" />
+        <polygon data-bairro="belem" class="bairro" points="0,430 50,430 50,500 30,510 0,505" />
+        <polygon data-bairro="ajuda" class="bairro" points="0,340 50,350 50,430 0,430" />
+        <polygon data-bairro="marvila" class="bairro" points="450,260 500,250 500,420 460,440 420,400 450,370" />
+        <polygon data-bairro="parque-das-nacoes" class="bairro" points="450,30 500,30 500,250 450,260 450,150" />
+
+        <!-- Labels (hidden by default) -->
+        <text data-label="avenidas-novas" class="bairro-label" x="250" y="80">Avenidas Novas</text>
+        <text data-label="arroios" class="bairro-label" x="400" y="95">Arroios</text>
+        <text data-label="campo-de-ourique" class="bairro-label" x="100" y="195">Campo de Ourique</text>
+        <text data-label="principe-real" class="bairro-label" x="190" y="165">Príncipe Real</text>
+        <text data-label="penha-de-franca" class="bairro-label" x="400" y="220">Penha de França</text>
+        <text data-label="estrela" class="bairro-label" x="100" y="305">Estrela</text>
+        <text data-label="bairro-alto" class="bairro-label" x="190" y="250">Bairro Alto</text>
+        <text data-label="mouraria" class="bairro-label" x="290" y="175">Mouraria</text>
+        <text data-label="graca" class="bairro-label" x="340" y="290">Graça</text>
+        <text data-label="chiado" class="bairro-label" x="190" y="335">Chiado</text>
+        <text data-label="baixa" class="bairro-label" x="265" y="305">Baixa</text>
+        <text data-label="lapa" class="bairro-label" x="100" y="395">Lapa</text>
+        <text data-label="santos" class="bairro-label" x="170" y="430">Santos</text>
+        <text data-label="alfama" class="bairro-label" x="330" y="400">Alfama</text>
+        <text data-label="beato" class="bairro-label" x="420" y="345">Beato</text>
+        <text data-label="alcantara" class="bairro-label" x="90" y="475">Alcântara</text>
+        <text data-label="belem" class="bairro-label" x="25" y="475">Belém</text>
+        <text data-label="ajuda" class="bairro-label" x="25" y="390">Ajuda</text>
+        <text data-label="marvila" class="bairro-label" x="470" y="350">Marvila</text>
+        <text data-label="parque-das-nacoes" class="bairro-label" x="475" y="145">P. Nações</text>
+      </svg>
+    </div>
+
+    <div id="optionsArea">
+      <div class="options" id="optionsGrid"></div>
+    </div>
+
+    <div class="feedback hidden" id="feedback"></div>
+  </div>
+
+  <button class="btn btn-primary" id="nextBtn" onclick="nextQuestion()" style="display:none">Next</button>
+
+  <div class="results" id="results" style="display:none">
+    <div class="results-score" id="finalScore"></div>
+    <div class="results-label">correct answers</div>
+    <div class="results-msg" id="finalMsg"></div>
+    <button class="btn btn-primary" style="margin-top:18px" onclick="restart()">Play again</button>
+  </div>
+</main>
+
+<script>
+var BAIRROS = [
+  {id:'avenidas-novas', name:'Avenidas Novas'},
+  {id:'arroios', name:'Arroios'},
+  {id:'campo-de-ourique', name:'Campo de Ourique'},
+  {id:'principe-real', name:'Príncipe Real'},
+  {id:'penha-de-franca', name:'Penha de França'},
+  {id:'estrela', name:'Estrela'},
+  {id:'bairro-alto', name:'Bairro Alto'},
+  {id:'mouraria', name:'Mouraria'},
+  {id:'graca', name:'Graça'},
+  {id:'chiado', name:'Chiado'},
+  {id:'baixa', name:'Baixa'},
+  {id:'lapa', name:'Lapa'},
+  {id:'santos', name:'Santos'},
+  {id:'alfama', name:'Alfama'},
+  {id:'beato', name:'Beato'},
+  {id:'alcantara', name:'Alcântara'},
+  {id:'belem', name:'Belém'},
+  {id:'ajuda', name:'Ajuda'},
+  {id:'marvila', name:'Marvila'},
+  {id:'parque-das-nacoes', name:'Parque das Nações'}
+];
+
+var state = { mode: 'map', questions: [], current: 0, score: 0, answered: false, total: 0 };
+
+function shuffle(arr) {
+  for (var i = arr.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+  }
+  return arr;
+}
+
+function clearMap() {
+  document.querySelectorAll('.bairro').forEach(function(el) {
+    el.classList.remove('highlighted', 'correct', 'wrong', 'revealed');
+  });
+  document.querySelectorAll('.bairro-label').forEach(function(el) {
+    el.classList.remove('visible');
+  });
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  document.getElementById('modeMap').classList.toggle('active', mode === 'map');
+  document.getElementById('modeName').classList.toggle('active', mode === 'name');
+  restart();
+}
+
+function restart() {
+  state.questions = shuffle(BAIRROS.slice());
+  state.total = state.questions.length;
+  state.current = 0;
+  state.score = 0;
+  state.answered = false;
+  document.getElementById('results').style.display = 'none';
+  document.getElementById('nextBtn').style.display = 'none';
+  document.querySelector('.quiz-card').style.display = 'block';
+  document.querySelector('.score-bar').style.display = 'flex';
+  updateScore();
+  startRound();
+}
+
+function updateScore() {
+  document.getElementById('progress').textContent = (state.current + 1) + ' / ' + state.total;
+  document.getElementById('score').textContent = state.score;
+}
+
+function startRound() {
+  clearMap();
+  state.answered = false;
+  var fb = document.getElementById('feedback');
+  fb.className = 'feedback hidden';
+  document.getElementById('nextBtn').style.display = 'none';
+
+  var q = state.questions[state.current];
+
+  if (state.mode === 'map') {
+    document.getElementById('prompt').innerHTML = 'Which neighbourhood is highlighted?';
+    document.getElementById('optionsArea').style.display = 'block';
+    // Highlight the target
+    var poly = document.querySelector('[data-bairro="' + q.id + '"]');
+    if (poly) poly.classList.add('highlighted');
+    renderOptions(q);
+    // Disable map clicks in map mode
+    document.querySelectorAll('.bairro').forEach(function(el) { el.onclick = null; });
+  } else {
+    document.getElementById('prompt').innerHTML = 'Tap to find: <strong>' + q.name + '</strong>';
+    document.getElementById('optionsArea').style.display = 'none';
+    // Enable map clicks
+    document.querySelectorAll('.bairro').forEach(function(el) {
+      el.onclick = function() {
+        if (state.answered) return;
+        checkMapTap(el.dataset.bairro);
+      };
+    });
+  }
+  updateScore();
+}
+
+function renderOptions(correct) {
+  var others = BAIRROS.filter(function(b) { return b.id !== correct.id; });
+  shuffle(others);
+  var opts = shuffle([correct, others[0], others[1], others[2]]);
+  var grid = document.getElementById('optionsGrid');
+  grid.innerHTML = '';
+  opts.forEach(function(o) {
+    var btn = document.createElement('button');
+    btn.className = 'option-btn';
+    btn.textContent = o.name;
+    btn.onclick = function() { checkAnswer(o.id, btn); };
+    grid.appendChild(btn);
+  });
+}
+
+function checkAnswer(selectedId, btn) {
+  if (state.answered) return;
+  state.answered = true;
+  var q = state.questions[state.current];
+  var isCorrect = selectedId === q.id;
+
+  // Disable all buttons
+  document.querySelectorAll('.option-btn').forEach(function(b) { b.disabled = true; });
+
+  if (isCorrect) {
+    state.score++;
+    btn.classList.add('correct');
+    showFeedback(true, q.name);
+    var poly = document.querySelector('[data-bairro="' + q.id + '"]');
+    if (poly) { poly.classList.remove('highlighted'); poly.classList.add('correct'); }
+  } else {
+    btn.classList.add('wrong');
+    // Show correct answer
+    document.querySelectorAll('.option-btn').forEach(function(b) {
+      if (b.textContent === q.name) b.classList.add('correct');
+    });
+    showFeedback(false, q.name);
+    var poly = document.querySelector('[data-bairro="' + q.id + '"]');
+    if (poly) { poly.classList.remove('highlighted'); poly.classList.add('correct'); }
+  }
+  // Show label
+  var label = document.querySelector('[data-label="' + q.id + '"]');
+  if (label) label.classList.add('visible');
+
+  updateScore();
+  document.getElementById('nextBtn').style.display = 'block';
+}
+
+function checkMapTap(tappedId) {
+  if (state.answered) return;
+  state.answered = true;
+  var q = state.questions[state.current];
+  var isCorrect = tappedId === q.id;
+  var tappedPoly = document.querySelector('[data-bairro="' + tappedId + '"]');
+  var correctPoly = document.querySelector('[data-bairro="' + q.id + '"]');
+
+  if (isCorrect) {
+    state.score++;
+    if (tappedPoly) tappedPoly.classList.add('correct');
+    showFeedback(true, q.name);
+  } else {
+    if (tappedPoly) tappedPoly.classList.add('wrong');
+    if (correctPoly) correctPoly.classList.add('revealed');
+    // Show tapped label too
+    var tappedLabel = document.querySelector('[data-label="' + tappedId + '"]');
+    if (tappedLabel) tappedLabel.classList.add('visible');
+    var tappedName = BAIRROS.find(function(b) { return b.id === tappedId; });
+    showFeedback(false, q.name + ' (you tapped ' + (tappedName ? tappedName.name : tappedId) + ')');
+  }
+  // Show correct label
+  var label = document.querySelector('[data-label="' + q.id + '"]');
+  if (label) label.classList.add('visible');
+
+  updateScore();
+  document.getElementById('nextBtn').style.display = 'block';
+}
+
+function showFeedback(isCorrect, text) {
+  var fb = document.getElementById('feedback');
+  fb.className = 'feedback ' + (isCorrect ? 'correct-fb' : 'wrong-fb');
+  fb.textContent = isCorrect ? 'Correct!' : 'It was ' + text;
+}
+
+function nextQuestion() {
+  state.current++;
+  if (state.current >= state.total) {
+    showResults();
+    return;
+  }
+  startRound();
+}
+
+function showResults() {
+  document.querySelector('.quiz-card').style.display = 'none';
+  document.querySelector('.score-bar').style.display = 'none';
+  document.getElementById('nextBtn').style.display = 'none';
+  var results = document.getElementById('results');
+  results.style.display = 'block';
+  document.getElementById('finalScore').textContent = state.score + ' / ' + state.total;
+  var pct = Math.round(100 * state.score / state.total);
+  var msg = pct === 100 ? 'Perfect! You know Lisbon inside out!' :
+            pct >= 80 ? 'Great job! Almost there!' :
+            pct >= 50 ? 'Not bad! Keep practising!' :
+            'Keep exploring Lisbon!';
+  document.getElementById('finalMsg').textContent = msg;
+}
+
+// Start the quiz
+restart();
+</script>
+""" + _bottom_nav_html('quiz') + """
 </body>
 </html>
 """
