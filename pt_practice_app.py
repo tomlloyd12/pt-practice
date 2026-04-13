@@ -2615,7 +2615,7 @@ QUIZ_PAGE = """<!doctype html>
     .prompt strong { color: var(--green-dark); font-size: 18px; }
 
     /* ── SVG map ── */
-    .svg-wrap { width: 100%; aspect-ratio: 5 / 6; margin-bottom: 14px; }
+    .svg-wrap { width: 100%; margin-bottom: 14px; }
     .svg-wrap svg { width: 100%; height: 100%; }
     .bairro {
       fill: #e2e8f0; stroke: white; stroke-width: 2;
@@ -2683,7 +2683,7 @@ QUIZ_PAGE = """<!doctype html>
   </div>
 
   <div class="score-bar">
-    <span id="progress">1 / 20</span>
+    <span id="progress">1 / 24</span>
     <span>Score: <span class="score-val" id="score">0</span></span>
   </div>
 
@@ -2693,52 +2693,68 @@ QUIZ_PAGE = """<!doctype html>
     <div class="svg-wrap">
       <svg viewBox="0 0 500 600" id="lisbonMap">
         <!-- River Tagus -->
-        <path class="river" d="M0,520 Q60,500 120,510 Q200,530 280,510 Q360,500 440,515 Q480,520 500,510 L500,600 L0,600 Z" />
+        <path class="river" d="M0,555 L50,548 120,555 190,530 230,505 270,512 320,518 370,508 410,460 445,468 480,440 500,445 500,600 0,600 Z" />
 
-        <!-- Neighbourhoods — west to east, north to south -->
-        <polygon data-bairro="avenidas-novas" class="bairro" points="150,30 350,30 350,120 150,120" />
-        <polygon data-bairro="arroios" class="bairro" points="350,30 450,30 450,150 350,150 350,120" />
-        <polygon data-bairro="campo-de-ourique" class="bairro" points="50,120 150,120 150,240 100,260 50,250" />
-        <polygon data-bairro="avenidas-novas" class="bairro" style="display:none" />
-        <polygon data-bairro="principe-real" class="bairro" points="150,120 230,120 230,200 150,200" />
-        <polygon data-bairro="penha-de-franca" class="bairro" points="350,150 450,150 450,260 380,280 350,260" />
-        <polygon data-bairro="estrela" class="bairro" points="50,250 100,260 150,240 150,340 100,360 50,350" />
-        <polygon data-bairro="bairro-alto" class="bairro" points="150,200 230,200 230,290 150,290" />
-        <polygon data-bairro="mouraria" class="bairro" points="230,120 350,120 350,220 300,230 230,220" />
-        <polygon data-bairro="graca" class="bairro" points="300,230 350,220 350,260 380,280 380,340 330,360 300,340" />
-        <polygon data-bairro="chiado" class="bairro" points="150,290 230,290 230,370 200,380 150,370" />
-        <polygon data-bairro="baixa" class="bairro" points="230,220 300,230 300,340 280,380 230,370 230,290" />
-        <polygon data-bairro="lapa" class="bairro" points="50,350 100,360 150,340 150,370 130,420 100,440 50,430" />
-        <polygon data-bairro="santos" class="bairro" points="130,420 150,370 200,380 200,440 180,470 140,470" />
-        <polygon data-bairro="alfama" class="bairro" points="280,380 300,340 330,360 380,340 380,410 340,450 280,440" />
-        <polygon data-bairro="beato" class="bairro" points="380,280 450,260 450,370 420,400 380,410 380,340" />
-        <polygon data-bairro="alcantara" class="bairro" points="50,430 100,440 140,470 120,510 50,500" />
-        <polygon data-bairro="belem" class="bairro" points="0,430 50,430 50,500 30,510 0,505" />
-        <polygon data-bairro="ajuda" class="bairro" points="0,340 50,350 50,430 0,430" />
-        <polygon data-bairro="marvila" class="bairro" points="450,260 500,250 500,420 460,440 420,400 450,370" />
-        <polygon data-bairro="parque-das-nacoes" class="bairro" points="450,30 500,30 500,250 450,260 450,150" />
+        <!-- === Freguesias (24 official, matching 2012 reorganisation) === -->
+        <!-- North tier -->
+        <polygon data-bairro="carnide" class="bairro" points="35,55 105,12 175,12 185,70 170,150 115,175 50,168" />
+        <polygon data-bairro="lumiar" class="bairro" points="175,12 245,0 290,38 282,128 242,162 170,150 185,70" />
+        <polygon data-bairro="santa-clara" class="bairro" points="245,0 345,0 352,58 312,118 282,128 290,38" />
+        <polygon data-bairro="olivais" class="bairro" points="345,0 445,0 458,55 432,148 372,155 312,118 352,58" />
+        <polygon data-bairro="parque-das-nacoes" class="bairro" points="445,0 492,18 495,215 462,258 432,148 458,55" />
 
-        <!-- Labels (hidden by default) -->
-        <text data-label="avenidas-novas" class="bairro-label" x="250" y="80">Avenidas Novas</text>
-        <text data-label="arroios" class="bairro-label" x="400" y="95">Arroios</text>
-        <text data-label="campo-de-ourique" class="bairro-label" x="100" y="195">Campo de Ourique</text>
-        <text data-label="principe-real" class="bairro-label" x="190" y="165">Príncipe Real</text>
-        <text data-label="penha-de-franca" class="bairro-label" x="400" y="220">Penha de França</text>
-        <text data-label="estrela" class="bairro-label" x="100" y="305">Estrela</text>
-        <text data-label="bairro-alto" class="bairro-label" x="190" y="250">Bairro Alto</text>
-        <text data-label="mouraria" class="bairro-label" x="290" y="175">Mouraria</text>
-        <text data-label="graca" class="bairro-label" x="340" y="290">Graça</text>
-        <text data-label="chiado" class="bairro-label" x="190" y="335">Chiado</text>
-        <text data-label="baixa" class="bairro-label" x="265" y="305">Baixa</text>
-        <text data-label="lapa" class="bairro-label" x="100" y="395">Lapa</text>
-        <text data-label="santos" class="bairro-label" x="170" y="430">Santos</text>
-        <text data-label="alfama" class="bairro-label" x="330" y="400">Alfama</text>
-        <text data-label="beato" class="bairro-label" x="420" y="345">Beato</text>
-        <text data-label="alcantara" class="bairro-label" x="90" y="475">Alcântara</text>
-        <text data-label="belem" class="bairro-label" x="25" y="475">Belém</text>
-        <text data-label="ajuda" class="bairro-label" x="25" y="390">Ajuda</text>
-        <text data-label="marvila" class="bairro-label" x="470" y="350">Marvila</text>
-        <text data-label="parque-das-nacoes" class="bairro-label" x="475" y="145">P. Nações</text>
+        <!-- Upper-mid tier -->
+        <polygon data-bairro="benfica" class="bairro" points="30,168 50,168 115,175 152,198 158,268 102,290 30,270" />
+        <polygon data-bairro="sao-domingos-de-benfica" class="bairro" points="115,175 170,150 242,162 262,198 252,258 202,278 158,268 152,198" />
+        <polygon data-bairro="alvalade" class="bairro" points="242,162 282,128 312,118 372,155 378,218 342,248 292,258 262,198" />
+        <polygon data-bairro="marvila" class="bairro" points="372,155 432,148 462,258 472,378 442,418 412,378 392,318 378,218" />
+
+        <!-- Middle tier -->
+        <polygon data-bairro="campolide" class="bairro" points="158,268 202,278 228,308 218,358 172,368 122,348 102,290" />
+        <polygon data-bairro="avenidas-novas" class="bairro" points="202,278 252,258 292,258 322,288 302,338 268,348 228,308" />
+        <polygon data-bairro="areeiro" class="bairro" points="292,258 342,248 378,218 392,318 362,338 322,288" />
+        <polygon data-bairro="arroios" class="bairro" points="268,348 302,338 322,288 362,338 372,378 342,398 298,388" />
+        <polygon data-bairro="penha-de-franca" class="bairro" points="362,338 392,318 412,378 402,418 372,418 342,398 372,378" />
+        <polygon data-bairro="beato" class="bairro" points="412,378 442,418 472,378 480,440 445,468 402,448 402,418" />
+
+        <!-- Lower tier -->
+        <polygon data-bairro="campo-de-ourique" class="bairro" points="102,348 122,348 172,368 192,408 162,438 102,438 72,408" />
+        <polygon data-bairro="estrela" class="bairro" points="172,368 218,358 258,398 252,458 202,478 162,438 192,408" />
+        <polygon data-bairro="santo-antonio" class="bairro" points="258,398 298,388 312,418 302,448 262,448 252,458" />
+        <polygon data-bairro="sao-vicente" class="bairro" points="312,418 342,398 372,418 402,418 402,448 372,468 332,458" />
+        <polygon data-bairro="misericordia" class="bairro" points="252,458 262,448 302,448 312,488 272,508 232,498" />
+        <polygon data-bairro="santa-maria-maior" class="bairro" points="302,448 332,458 372,468 372,508 322,518 312,488" />
+
+        <!-- South / river tier -->
+        <polygon data-bairro="ajuda" class="bairro" points="30,378 72,408 102,438 72,458 82,498 52,518 22,498 22,418" />
+        <polygon data-bairro="alcantara" class="bairro" points="102,438 162,438 202,478 192,530 132,530 82,498 72,458" />
+        <polygon data-bairro="belem" class="bairro" points="22,498 52,518 82,498 132,530 120,555 50,548 10,545" />
+
+        <!-- Labels (hidden by default, shown on answer) -->
+        <text data-label="carnide" class="bairro-label" x="118" y="98">Carnide</text>
+        <text data-label="lumiar" class="bairro-label" x="222" y="95">Lumiar</text>
+        <text data-label="santa-clara" class="bairro-label" x="308" y="62">Santa Clara</text>
+        <text data-label="olivais" class="bairro-label" x="388" y="88">Olivais</text>
+        <text data-label="parque-das-nacoes" class="bairro-label" x="470" y="138">P. Nações</text>
+        <text data-label="benfica" class="bairro-label" x="95" y="225">Benfica</text>
+        <text data-label="sao-domingos-de-benfica" class="bairro-label" x="198" y="218">S.D. Benfica</text>
+        <text data-label="alvalade" class="bairro-label" x="318" y="198">Alvalade</text>
+        <text data-label="marvila" class="bairro-label" x="428" y="278">Marvila</text>
+        <text data-label="campolide" class="bairro-label" x="165" y="318">Campolide</text>
+        <text data-label="avenidas-novas" class="bairro-label" x="268" y="302">Av. Novas</text>
+        <text data-label="areeiro" class="bairro-label" x="348" y="282">Areeiro</text>
+        <text data-label="arroios" class="bairro-label" x="322" y="365">Arroios</text>
+        <text data-label="penha-de-franca" class="bairro-label" x="382" y="378">P. França</text>
+        <text data-label="beato" class="bairro-label" x="442" y="432">Beato</text>
+        <text data-label="campo-de-ourique" class="bairro-label" x="135" y="400">C. Ourique</text>
+        <text data-label="estrela" class="bairro-label" x="212" y="425">Estrela</text>
+        <text data-label="santo-antonio" class="bairro-label" x="282" y="428">Sto António</text>
+        <text data-label="sao-vicente" class="bairro-label" x="362" y="442">S. Vicente</text>
+        <text data-label="misericordia" class="bairro-label" x="275" y="482">Misericórdia</text>
+        <text data-label="santa-maria-maior" class="bairro-label" x="342" y="488">Sta M. Maior</text>
+        <text data-label="ajuda" class="bairro-label" x="58" y="452">Ajuda</text>
+        <text data-label="alcantara" class="bairro-label" x="142" y="488">Alcântara</text>
+        <text data-label="belem" class="bairro-label" x="75" y="530">Belém</text>
       </svg>
     </div>
 
@@ -2761,26 +2777,30 @@ QUIZ_PAGE = """<!doctype html>
 
 <script>
 var BAIRROS = [
-  {id:'avenidas-novas', name:'Avenidas Novas'},
-  {id:'arroios', name:'Arroios'},
-  {id:'campo-de-ourique', name:'Campo de Ourique'},
-  {id:'principe-real', name:'Príncipe Real'},
-  {id:'penha-de-franca', name:'Penha de França'},
-  {id:'estrela', name:'Estrela'},
-  {id:'bairro-alto', name:'Bairro Alto'},
-  {id:'mouraria', name:'Mouraria'},
-  {id:'graca', name:'Graça'},
-  {id:'chiado', name:'Chiado'},
-  {id:'baixa', name:'Baixa'},
-  {id:'lapa', name:'Lapa'},
-  {id:'santos', name:'Santos'},
-  {id:'alfama', name:'Alfama'},
-  {id:'beato', name:'Beato'},
-  {id:'alcantara', name:'Alcântara'},
-  {id:'belem', name:'Belém'},
-  {id:'ajuda', name:'Ajuda'},
+  {id:'carnide', name:'Carnide'},
+  {id:'lumiar', name:'Lumiar'},
+  {id:'santa-clara', name:'Santa Clara'},
+  {id:'olivais', name:'Olivais'},
+  {id:'parque-das-nacoes', name:'Parque das Nações'},
+  {id:'benfica', name:'Benfica'},
+  {id:'sao-domingos-de-benfica', name:'São Domingos de Benfica'},
+  {id:'alvalade', name:'Alvalade'},
   {id:'marvila', name:'Marvila'},
-  {id:'parque-das-nacoes', name:'Parque das Nações'}
+  {id:'campolide', name:'Campolide'},
+  {id:'avenidas-novas', name:'Avenidas Novas'},
+  {id:'areeiro', name:'Areeiro'},
+  {id:'arroios', name:'Arroios'},
+  {id:'penha-de-franca', name:'Penha de França'},
+  {id:'beato', name:'Beato'},
+  {id:'campo-de-ourique', name:'Campo de Ourique'},
+  {id:'estrela', name:'Estrela'},
+  {id:'santo-antonio', name:'Santo António'},
+  {id:'sao-vicente', name:'São Vicente'},
+  {id:'misericordia', name:'Misericórdia'},
+  {id:'santa-maria-maior', name:'Santa Maria Maior'},
+  {id:'ajuda', name:'Ajuda'},
+  {id:'alcantara', name:'Alcântara'},
+  {id:'belem', name:'Belém'}
 ];
 
 var state = { mode: 'map', questions: [], current: 0, score: 0, answered: false, total: 0 };
