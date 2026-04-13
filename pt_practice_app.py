@@ -1029,21 +1029,25 @@ def api_explain_followup():
 _BOTTOM_NAV_CSS = """
     .bottom-nav {
       position: fixed; bottom: 0; left: 0; right: 0;
-      height: calc(62px + env(safe-area-inset-bottom));
+      height: calc(64px + env(safe-area-inset-bottom));
       background: white; border-top: 1px solid #e2e8f0;
       display: flex; z-index: 100;
       padding-bottom: env(safe-area-inset-bottom);
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+      scrollbar-width: none; -ms-overflow-style: none;
     }
+    .bottom-nav::-webkit-scrollbar { display: none; }
     .nav-item {
-      flex: 1; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; gap: 2px;
+      flex: 0 0 auto; min-width: 72px;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 3px;
       border: none; background: none; cursor: pointer;
       color: #94a3b8; font-size: 10px; font-weight: 600;
-      text-decoration: none; padding: 8px 2px; font-family: inherit;
+      text-decoration: none; padding: 8px 6px; font-family: inherit;
       transition: color .15s; -webkit-tap-highlight-color: transparent;
-      min-height: 48px;
+      min-height: 52px;
     }
-    .nav-item .nav-icon { font-size: 20px; line-height: 1; }
+    .nav-item .nav-icon { font-size: 22px; line-height: 1; }
     .nav-item.active { color: #166534; }
 """
 
@@ -1063,6 +1067,7 @@ def _bottom_nav_html(active):
         cls = "nav-item active" if key == active else "nav-item"
         nav += f'<a href="{href}" class="{cls}"><span class="nav-icon">{icon}</span><span>{label}</span></a>'
     nav += '</nav>'
+    nav += '<script>!function(){var a=document.querySelector(".nav-item.active");if(a)a.scrollIntoView({inline:"center",block:"nearest"})}()</script>'
     return nav
 
 
@@ -1119,38 +1124,7 @@ PAGE = """<!doctype html>
     header h1 { color: white; font-size: 18px; font-weight: 800; letter-spacing: -.3px; }
     .flag { font-size: 24px; }
 
-    /* ── Bottom Navigation ── */
-    .bottom-nav {
-      position: fixed;
-      bottom: 0; left: 0; right: 0;
-      height: calc(60px + env(safe-area-inset-bottom));
-      background: white;
-      border-top: 1px solid var(--border);
-      display: flex;
-      z-index: 100;
-      padding-bottom: env(safe-area-inset-bottom);
-    }
-    .nav-item {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 2px;
-      border: none;
-      background: none;
-      cursor: pointer;
-      color: #94a3b8;
-      font-size: 10px;
-      font-weight: 600;
-      text-decoration: none;
-      padding: 6px 4px;
-      font-family: inherit;
-      transition: color .15s;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .nav-item .nav-icon { font-size: 22px; line-height: 1; }
-    .nav-item.active { color: var(--green); }
+    /* ── Bottom Navigation ── */""" + _BOTTOM_NAV_CSS + """
 
     /* ── Main ── */
     main { padding: 20px 16px; max-width: 640px; margin: 0 auto; }
@@ -1588,6 +1562,10 @@ PAGE = """<!doctype html>
   <a href="/flashcards" class="nav-item">
     <span class="nav-icon">📚</span>
     <span>Cards</span>
+  </a>
+  <a href="/quiz" class="nav-item">
+    <span class="nav-icon">🗺</span>
+    <span>Quiz</span>
   </a>
 </nav>
 
