@@ -36,7 +36,7 @@ from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 from flask import Flask, jsonify, redirect, request, render_template_string, Response, send_file
 from google.oauth2.service_account import Credentials
-from gtts import gTTS
+import random
 
 load_dotenv()
 
@@ -52,6 +52,7 @@ APP_PASSWORD            = os.getenv("APP_PASSWORD", "")
 EMAIL_ADDRESS           = os.getenv("EMAIL_ADDRESS", "tomlloyd12@gmail.com")
 EMAIL_APP_PASSWORD      = os.getenv("EMAIL_APP_PASSWORD", "")
 RESEND_API_KEY          = os.getenv("RESEND_API_KEY", "")
+ELEVENLABS_API_KEY      = os.getenv("ELEVENLABS_API_KEY", "")
 DATABASE_URL            = os.getenv("DATABASE_URL", "")
 
 # ── Database ──────────────────────────────────────────────────────────────────
@@ -701,27 +702,67 @@ def _translate_sentences(sentences):
     return [""] * len(sentences)
 
 
+_EL_VOICES = [
+    "RlGHmE2fztwdBDat0jYf",   # Diogo – Warm and Conversational (male, PT)
+    "nJ5NFqyKb8kn9JBPmo6i",   # Joana – Natural and Gentle (female, PT)
+    "Fij0Q07RV232HQv4oaiV",   # Lourenço – Lisbon accent (male)
+    "aLFUti4k8YKvtQGXv0UO",   # Paulo – Lisbon accent (male)
+    "c0rzOw18hxEhaSybUod2",   # Tiago – North of Portugal (male)
+    "RROBrqjHiRb8zmRgGV11",   # Dinis – Optimistic, Portugal (male)
+    "iLelOQ6m5mpSeNH8fRob",   # Maria – European Portuguese (female)
+    "zKjRewuiqTkXNUVAMwat",   # Mariza – Clear and Calm (female, PT)
+]
+
+
+def _generate_audio_elevenlabs(text):
+    """Generate MP3 audio via ElevenLabs API. Returns bytes or None."""
+    if not ELEVENLABS_API_KEY:
+        print("[Audio] No ELEVENLABS_API_KEY set")
+        return None
+    try:
+        from elevenlabs.client import ElevenLabs
+        from elevenlabs import VoiceSettings
+
+        client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+        audio = client.text_to_speech.convert(
+            voice_id=random.choice(_EL_VOICES),
+            text=text,
+            model_id="eleven_multilingual_v2",
+            output_format="mp3_44100_128",
+            voice_settings=VoiceSettings(
+                stability=0.5,
+                similarity_boost=0.75,
+                speed=1.07,
+            ),
+        )
+        chunks = []
+        for chunk in audio:
+            chunks.append(chunk)
+        data = b"".join(chunks)
+        if data:
+            return data
+        print(f"[Audio warning] Empty audio from ElevenLabs for: {text[:50]}")
+    except Exception as exc:
+        print(f"[Audio error] ElevenLabs: {exc} — text: {text[:50]}")
+    return None
+
+
 def generate_flashcard_zip(cards):
     """Generate a ZIP containing flashcards.csv + MP3 audio files."""
-    # Generate audio first (fast network calls)
+    # Generate audio first via ElevenLabs
     audio_files = {}
     filenames = []
     for card in cards:
         pt_sentence = card.get("portuguese", "")
         filename = ""
         if pt_sentence:
-            try:
-                mp3_buf = io.BytesIO()
-                gTTS(text=pt_sentence, lang="pt").write_to_fp(mp3_buf)
-                audio_data = mp3_buf.getvalue()
-                if audio_data:
-                    filename = f"{uuid.uuid4().hex[:8]}.mp3"
-                    audio_files[filename] = audio_data
-                    print(f"[Audio OK] {filename} ({len(audio_data)} bytes) for: {pt_sentence[:50]}")
-                else:
-                    print(f"[Audio warning] Empty audio for: {pt_sentence[:50]}")
-            except Exception as exc:
-                print(f"[Audio error] {exc} — sentence: {pt_sentence[:50]}")
+            audio_data = _generate_audio_elevenlabs(pt_sentence)
+            if audio_data:
+                filename = f"{uuid.uuid4().hex[:8]}.mp3"
+                audio_files[filename] = audio_data
+                print(f"[Audio OK] {filename} ({len(audio_data)} bytes) for: {pt_sentence[:50]}")
+            else:
+                print(f"[Audio failed] No audio for: {pt_sentence[:50]}")
         filenames.append(filename)
 
     # Translate sentences to English (best-effort, won't block if it fails)

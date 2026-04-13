@@ -1,6 +1,6 @@
 flask
 anthropic
-gtts
+elevenlabs
 gspread
 google-auth
 python-dotenv
