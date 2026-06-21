@@ -1,0 +1,28 @@
+name: Pocket Casts listening tracker
+
+on:
+  schedule:
+    # Hourly, on the hour (UTC). GitHub may delay scheduled runs under load.
+    - cron: "0 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run tracker
+        run: node track.js
+        env:
+          PC_EMAIL: ${{ secrets.PC_EMAIL }}
+          PC_PASSWORD: ${{ secrets.PC_PASSWORD }}
+          AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+          AIRTABLE_BASE: ${{ secrets.AIRTABLE_BASE }}
+          TZ: Europe/London
