@@ -2,8 +2,9 @@ name: Pocket Casts listening tracker
 
 on:
   schedule:
-    # Hourly, on the hour (UTC). GitHub may delay scheduled runs under load.
-    - cron: "0 * * * *"
+    # Every 2 hours, on the hour (UTC). GitHub may delay scheduled runs under load.
+    # Kept thrifty to stay within Airtable free-tier monthly API-call limits.
+    - cron: "0 */2 * * *"
   workflow_dispatch: {}
 
 jobs:

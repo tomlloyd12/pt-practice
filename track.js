@@ -1,6 +1,6 @@
 // Pocket Casts -> Airtable listening tracker.
 //
-// Runs hourly on GitHub Actions. Reads the cumulative "time listened" stat
+// Runs every 2 hours on GitHub Actions. Reads the cumulative "time listened" stat
 // from the Pocket Casts private API and adds the increase since the previous
 // run to today's row in Airtable. Using the cumulative stat means relistens
 // are counted too.
@@ -272,9 +272,15 @@ async function main() {
     console.log("No new listening since last run; nothing to log.");
   }
 
-  // Always advance the stored cumulative total.
-  await writeLastTotal(stateRecord, currentTotal);
-  console.log(`Stored new cumulative total: ${currentTotal}s.`);
+  // Only advance the stored cumulative total when it actually changed. On idle
+  // runs (the common case) the total is unchanged, so we skip the write and
+  // save an Airtable API call to stay within free-tier monthly limits.
+  if (currentTotal !== lastTotal) {
+    await writeLastTotal(stateRecord, currentTotal);
+    console.log(`Stored new cumulative total: ${currentTotal}s.`);
+  } else {
+    console.log("Cumulative total unchanged; skipping Sync State write.");
+  }
 }
 
 main().catch((err) => {

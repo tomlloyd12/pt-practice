@@ -2,8 +2,9 @@
 
 Automatically logs how many minutes of podcast you listen to each day and
 tracks it against a target of **45 minutes/day**. No timer to tap — a GitHub
-Action runs hourly, reads your cumulative "time listened" from the Pocket Casts
-private API, and adds the increase since the last run to today's Airtable row.
+Action runs every 2 hours, reads your cumulative "time listened" from the Pocket
+Casts private API, and adds the increase since the last run to today's Airtable
+row.
 
 Because it uses the cumulative lifetime stat, relistens are counted too.
 
@@ -56,8 +57,11 @@ Base: **Portuguese Listening**
    workflow). The first run only seeds the baseline and logs nothing; logging
    starts from the second run onward.
 
-After that it runs automatically every hour. `workflow_dispatch` lets you
+After that it runs automatically every 2 hours. `workflow_dispatch` lets you
 trigger it manually any time. The workflow sets `TZ=Europe/London`.
+
+The 2-hour cadence (rather than hourly) and the skip-write-when-idle behaviour
+keep the script well within Airtable free-tier monthly API-call limits.
 
 ## Local test
 
